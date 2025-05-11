@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  holoscan:
+    image: nvcr.io/nvidia/clara-holoscan/holoscan:v3.2.0-dgpu
+    container_name: holoscan
+    build: ./realsense-holoscan/
+    runtime: nvidia
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XDG_RUNTIME_DIR=/tmp/runtime-${USER}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${HOME}/.Xauthority:/root/.Xauthority:ro
+      - /dev:/dev
+      - ./:/app
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/bus/usb:/dev/bus/usb
+    network_mode: host
+    privileged: true
+    stdin_open: true
+    tty: true
