@@ -129,9 +129,9 @@ hololink enumerate
 
 
 # output example inside docker
-mac_id=98:4F:EE:1A:F6:85 cpnx_version=0X2412 clnx_version=0X0 ip_address=192.168.11.55 
-mac_id=98:4F:EE:1A:F6:85 cpnx_version=0X2412 clnx_version=0X0 ip_address=192.168.11.55 
-mac_id=98:4F:EE:1A:F6:85 cpnx_version=0X2412 clnx_version=0X0 ip_address=192.168.11.55 
+mac_id=98:4F:EE:1A:F6:85 cpnx_version=0X2412 clnx_version=0X0 ip_address=192.168.0.2
+mac_id=98:4F:EE:1A:F6:85 cpnx_version=0X2412 clnx_version=0X0 ip_address=192.168.0.2
+mac_id=98:4F:EE:1A:F6:85 cpnx_version=0X2412 clnx_version=0X0 ip_address=192.168.0.2
 ...
 ```
 

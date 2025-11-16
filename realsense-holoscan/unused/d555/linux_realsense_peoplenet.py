@@ -197,7 +197,7 @@ def main():
     )
     parser.add_argument(
         "--hololink",
-        default="192.168.11.55",
+        default="192.168.0.2",
         help="IP address of Hololink board",
     )
     default_engine = os.path.join(
