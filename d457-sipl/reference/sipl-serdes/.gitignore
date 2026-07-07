@@ -1,0 +1,6 @@
+# NVIDIA-proprietary SIPL/UDDF source — local reference only, do not commit.
+# (LicenseRef-NvidiaProprietary; redistribution prohibited.)
+# Track only this dir's own docs.
+*
+!.gitignore
+!README.md

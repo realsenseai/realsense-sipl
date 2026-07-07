@@ -1,0 +1,44 @@
+{
+  "platformConfigs": [
+    {
+      "name": "Thor_D457_GMSL",
+      "description": "Advantech MIC-742 Thor + RealSense D457 GMSL - depth 1280x720@30 (Z16)",
+      "deviceBlocks": [
+        {
+          "csiPort": "csi-ab",
+          "phyMode": "dphy",
+          "i2cDevice": 9,
+          "deserializerInfo": {
+            "name": "Max96712GmslDeserializer",
+            "i2cAddress": "0x29"
+          },
+          "cameraModules": [
+            {
+              "name": "D457",
+              "linkIndex": 0,
+              "serializerInfo": {
+                "name": "MAX9295",
+                "i2cAddress": "0x40"
+              },
+              "sensorInfo": {
+                "name": "D457",
+                "i2cAddress": "0x1A",
+                "vcInfo": [
+                  {
+                    "cfa": "rggb",
+                    "inputFormat": "raw16",
+                    "width": 1280,
+                    "height": 720,
+                    "fps": 30.0,
+                    "embeddedTopLines": 1,
+                    "embeddedBottomLines": 0
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
