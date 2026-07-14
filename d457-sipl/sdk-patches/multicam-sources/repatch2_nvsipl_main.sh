@@ -29,8 +29,8 @@ ins='''
                                 static_cast<uint16_t>(_sc.address.virtualI2CAddress.value() + _link * 0x10U);
                         }
                         for (auto& _vc : _sc.vcInfoList) {
-                            if (_vc.vcIdSrc != UINT32_MAX) { _vc.vcIdSrc += _link * 4U; }
-                            if (_vc.vcIdDst != UINT32_MAX) { _vc.vcIdDst += _link * 4U; }
+                            if (_vc.vcIdSrc != UINT32_MAX) { _vc.vcIdSrc += _link * static_cast<uint32_t>(_gm.sensorConfigs.size()); }
+                            if (_vc.vcIdDst != UINT32_MAX) { _vc.vcIdDst += _link * static_cast<uint32_t>(_gm.sensorConfigs.size()); }
                         }
                     }, _scv);
                 }

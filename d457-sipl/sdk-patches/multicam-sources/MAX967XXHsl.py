@@ -357,106 +357,53 @@ class MAX967XX(ABC):
         with Sequence('set_ser_video_pipeline_mapping_A'):
             annotate('Set SER Video Pipeline Mapping for Link A with configurable txPort-based value')
             with self.max967xx:
-                # D457 dual-VC: TWO deser pipes from the ONE GMSL stream (both <- stream X), one pipe per VC,
-                # so each VC has its own line buffer. A single pipe cannot cleanly interleave 2 VCs (depth+RGB
-                # alone are each stable, together -> PIX_SHORT/ICP teardown). pipe0=VC0 depth, pipe1=VC1 RGB.
-                write(0x00F0, 0x10)  # pipe-per-VC: deser pipe0<-stream0 (depth), pipe1<-stream1 (RGB)
-                write(0x00F4, 0x07)  # VIDEO_PIPE_EN: enable pipes 0,1,2 (depth, RGB, IR)
-                # --- pipe 0: VC0 depth (0x2E passthrough) ---
-                write(0x090B, 0x07)  # 3 maps: PIX+FS+FE
-                write(0x092D, 0x15)  # -> PHY1
-                write(0x090D, 0x2e)  # PIX SRC VC0/0x2E
-                write(0x090E, 0x2e)  # PIX DST VC0/0x2E
-                write(0x090F, 0x00)  # FS SRC VC0
-                write(0x0910, 0x00)  # FS DST VC0
-                write(0x0911, 0x01)  # FE SRC VC0
-                write(0x0912, 0x01)  # FE DST VC0
-                write(0x0800, 0x00)  # pipe0 TX_EXT0-3 = vc_msb 0 (VC0<4) — explicit, avoid stale ext-VC
-                write(0x0801, 0x00)
-                write(0x0802, 0x00)
-                write(0x0803, 0x00)
-                write(0x0100, 0x23)  # pipe0 VIDEO_RX: DIS_PKT_DET
-                # --- pipe 1: VC1 RGB (0x1E -> 0x2E, stays on VC1) ---
-                write(0x094B, 0x0F)  # 4 maps (RGB 0x1E + IR 0x2E on VC1)
-                write(0x096D, 0x55)  # 4 slots -> PHY1
-                write(0x094D, 0x5e)  # PIX SRC VC1/0x1E (0x40|0x1E)
-                write(0x094E, 0x6e)  # PIX DST VC1/0x2E
-                write(0x094F, 0x40)  # FS SRC VC1
-                write(0x0950, 0x40)  # FS DST VC1
-                write(0x0951, 0x41)  # FE SRC VC1
-                write(0x0952, 0x41)  # FE DST VC1
-                write(0x0953, 0x6e)  # slot3 SRC VC1/0x2E (IR)
-                write(0x0954, 0x6e)  # slot3 DST VC1/0x2E
-                write(0x0810, 0x00)  # pipe1 TX_EXT0-3 = vc_msb 0 (VC1<4) — explicit, avoid stale ext-VC
-                write(0x0811, 0x00)
-                write(0x0812, 0x00)
-                write(0x0813, 0x00)
-                write(0x0112, 0x23)  # pipe1 VIDEO_RX: DIS_PKT_DET
-                # --- pipe 2: VC2 IR (0x2E passthrough, stays on VC2) --- base = 0x090B + 0x80
-                write(0x098B, 0x07)  # 3 maps: PIX+FS+FE
-                write(0x09AD, 0x55)  # pipe2 dest-PHY -> PHY1 (0x092D + 0x80)
-                write(0x098D, 0xae)  # PIX SRC VC2/0x2E (0x80|0x2E)
-                write(0x098E, 0xae)  # PIX DST VC2/0x2E
-                write(0x098F, 0x80)  # FS SRC VC2
-                write(0x0990, 0x80)  # FS DST VC2
-                write(0x0991, 0x81)  # FE SRC VC2
-                write(0x0992, 0x81)  # FE DST VC2
-                write(0x0820, 0x00)  # pipe2 TX_EXT0-3 = vc_msb 0 (VC2<4)
-                write(0x0821, 0x00)
-                write(0x0822, 0x00)
-                write(0x0823, 0x00)
-                write(0x0124, 0x23)  # pipe2 VIDEO_RX: DIS_PKT_DET (0x0100 + 0x12*2)
-                # ===== MULTI-CAMERA: link1 (2nd D457) on deser pipes 3,4,5 -> output VC4,5,6 =====
-                # Each output VC>=4 uses extended-VC: MAP_DST carries the VC low 2 bits, MIPI_TX_EXT
-                # (0x800+0x10*pipe) carries vc_msb<<2. VC4:lsb0/msb1, VC5:lsb1/msb1, VC6:lsb2/msb1.
-                # --- pipe 3: link1 depth VC0/0x2E -> out VC4 (base 0x090B+0xC0=0x09CB) ---
-                write(0x09CB, 0x07)
-                write(0x09ED, 0x55)  # dest-PHY1 (0x092D+0xC0)
-                write(0x09CD, 0x2e)  # PIX SRC VC0/0x2E
-                write(0x09CE, 0x2e)  # PIX DST VC4 low=0x2E (+TX_EXT msb)
-                write(0x09CF, 0x00)  # FS SRC VC0
-                write(0x09D0, 0x00)  # FS DST VC4 low
-                write(0x09D1, 0x01)  # FE SRC VC0
-                write(0x09D2, 0x01)  # FE DST VC4 low
-                write(0x0830, 0x04)  # TX_EXT0 pipe3 vc_msb=1 (<<2)
-                write(0x0831, 0x04)
-                write(0x0832, 0x04)
-                write(0x0833, 0x04)
-                write(0x0136, 0x23)  # pipe3 VIDEO_RX (0x0100+0x12*3)
-                # --- pipe 4: link1 rgb VC1/0x1E -> out VC5 (base 0x0A0B) ---
-                write(0x0A0B, 0x07)
-                write(0x0A2D, 0x55)
-                write(0x0A0D, 0x5e)  # PIX SRC VC1/0x1E
-                write(0x0A0E, 0x6e)  # PIX DST VC5 low (0x40|0x2E)
-                write(0x0A0F, 0x40)  # FS SRC VC1
-                write(0x0A10, 0x40)  # FS DST VC5 low
-                write(0x0A11, 0x41)  # FE SRC VC1
-                write(0x0A12, 0x41)  # FE DST VC5 low
-                write(0x0840, 0x04)
-                write(0x0841, 0x04)
-                write(0x0842, 0x04)
-                write(0x0843, 0x04)
-                write(0x0148, 0x23)  # pipe4 VIDEO_RX (0x0100+0x12*4)
-                # --- pipe 5: link1 ir VC2/0x2E -> out VC6 (base 0x0A4B) ---
-                write(0x0A4B, 0x07)
-                write(0x0A6D, 0x55)
-                write(0x0A4D, 0xae)  # PIX SRC VC2/0x2E
-                write(0x0A4E, 0xae)  # PIX DST VC6 low (0x80|0x2E)
-                write(0x0A4F, 0x80)  # FS SRC VC2
-                write(0x0A50, 0x80)  # FS DST VC6 low
-                write(0x0A51, 0x81)  # FE SRC VC2
-                write(0x0A52, 0x81)  # FE DST VC6 low
-                write(0x0850, 0x04)
-                write(0x0851, 0x04)
-                write(0x0852, 0x04)
-                write(0x0853, 0x04)
-                write(0x0160, 0x23)  # pipe5 VIDEO_RX (0x0100+0x12*5 +6 errata for P>=5 => 0x0160)
-
-                # Video pipeline Selection: pipe<-(link<<2)|ser_pipe. link0 ser0/1/2=0x0/1/2; link1=0x4/5/6.
-                write(0x00F0, 0x10)  # pipe0<-(L0,s0)=0x0 ; pipe1<-(L0,s1)=0x1
-                write(0x00F1, 0x42)  # pipe2<-(L0,s2)=0x2 ; pipe3<-(L1,s0)=0x4
-                write(0x00F2, 0x65)  # pipe4<-(L1,s1)=0x5 ; pipe5<-(L1,s2)=0x6
-                write(0x00F4, 0x3F)  # VIDEO_PIPE_EN: pipes 0..5
+                # ===== GENERIC D457 multi-camera pipe map (pipe-per-VC) =====
+                # Parameterized by build-time env: D457_MAP_LINKS (default 2), D457_MAP_STREAMS (default 3
+                # => depth,rgb,ir). Stage 2 = 2 links x 3 streams (6 pipes). Stage 3 = 4 links x 2 streams
+                # (depth,rgb; 8 pipes). Each (link L, stream S) -> deser pipe P = L*SPL+S, output CSI VC =
+                # L*4+S. Stream S: 0=depth(0x2E), 1=rgb(0x1E->0x2E remap), 2=ir(0x2E). Since L*4 is a
+                # multiple of 4, native-VC == output-VC-lsb == S for the map slots; the output VC high bits
+                # (>=VC4) ride the extended-VC path via MIPI_TX_EXT (0x800+0x10*P = (VC>>2)<<2). Per-pipe:
+                # MAP_EN base+0x00, dest-PHY base+0x22 (PHY1=0x55), PIX SRC/DST base+0x02/03, FS base+0x04/05,
+                # FE base+0x06/07, rgb slot3 base+0x08/09; VIDEO_RX 0x0100+0x12*P (+6 errata for P>=5);
+                # VIDEO_PIPE_SEL nibble per pipe = (L<<2)|S in reg 0x00F0+(P>>1); VIDEO_PIPE_EN 0x00F4.
+                import os
+                NL  = int(os.environ.get('D457_MAP_LINKS', '2'))
+                SPL = int(os.environ.get('D457_MAP_STREAMS', '3'))
+                npipe = NL * SPL
+                write(0x00F4, 0x00)  # disable all pipes while (re)configuring
+                sel = {}
+                for L in range(NL):
+                    for S in range(SPL):
+                        P = L * SPL + S
+                        # PACKED output VC = L*SPL + S (contiguous 0..npipe-1). Keeps VCs <= 7 for up to 8
+                        # streams so extended-VC stays msb<=1 — the Tegra VI does NOT capture VC>=8.
+                        outVC = L * SPL + S
+                        base = 0x090B + 0x40 * P
+                        vrx  = 0x0100 + 0x12 * P + (6 if P >= 5 else 0)
+                        tx   = 0x0800 + 0x10 * P
+                        is_rgb = (S == 1)
+                        src = (S << 6)               # INPUT: serializer sends NATIVE VC S (depth0/rgb1/ir2)
+                        dst = ((outVC & 3) << 6)     # OUTPUT: packed CSI VC low 2 bits
+                        write(base + 0x00, 0x0F if is_rgb else 0x07)   # MAP_EN (rgb=4 maps, else 3)
+                        write(base + 0x22, 0x55)                        # dest -> PHY1
+                        write(base + 0x02, src | (0x1E if is_rgb else 0x2E))  # PIX SRC (native VC/DT)
+                        write(base + 0x03, dst | 0x2E)                  # PIX DST (packed VC / RAW16)
+                        write(base + 0x04, src | 0x00)                  # FS SRC
+                        write(base + 0x05, dst | 0x00)                  # FS DST
+                        write(base + 0x06, src | 0x01)                  # FE SRC
+                        write(base + 0x07, dst | 0x01)                  # FE DST
+                        if is_rgb:
+                            write(base + 0x08, src | 0x2E)              # slot3 SRC
+                            write(base + 0x09, dst | 0x2E)              # slot3 DST
+                        msb = (outVC >> 2) << 2                          # extended-VC high bits (0 or 4)
+                        write(tx + 0, msb); write(tx + 1, msb); write(tx + 2, msb); write(tx + 3, msb)
+                        write(vrx, 0x23)                                 # VIDEO_RX: DIS_PKT_DET
+                        r = 0x00F0 + (P >> 1)
+                        sel[r] = sel.get(r, 0) | (((L << 2) | S) << (4 if (P & 1) else 0))
+                for r in sorted(sel):
+                    write(r, sel[r])
+                write(0x00F4, (1 << npipe) - 1)                          # VIDEO_PIPE_EN: pipes 0..npipe-1
                 writeFromMemory(0x0939, self.video_pipeline_mapping_link_a_block.reg_0939)
                 write(0x0018, 0x01)
                 delay(100000)
