@@ -256,6 +256,27 @@ bool MAX9295::SerFinalizeInit(GmslSerializerContext const& context) {
           uddf::cdi::II2CBuilder* b = s.i2cBuilder(serAddr, I2CAddressMode::Physical);
           if (b != nullptr) { b->write(0x0044U, srcA, I2CWriteFlags::NO_READ_VERIFY);
                               b->write(0x0045U, 0x20U, I2CWriteFlags::NO_READ_VERIFY); hw.SubmitSequence(s); } }
+        // D457_SER_ISOL: replicate the working-d4xx MAX9295 i2c-translation-array block (regs 0x006B-0x00AB;
+        // values read live from a working d4xx ser) that SIPL never programs. In d4xx this is what makes a
+        // serializer NOT forward other links' aliases onto its local bus (so link1's 0x2a doesn't stall
+        // link0's RGB). Applied on this link's unique reassigned ser addr.
+        if (std::getenv("D457_SER_ISOL") != nullptr) {
+            uddf::cdi::IHSLDynamicSequence& s = hw.GetDynamicSequence();
+            uddf::cdi::II2CBuilder* b = s.i2cBuilder(serAddr, I2CAddressMode::Physical);
+            if (b != nullptr) {
+                b->write(0x006BU, 0x00U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0073U, 0x00U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x007BU, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0083U, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x008BU, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0093U, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x009BU, 0x00U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x00A3U, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x00ABU, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                hw.SubmitSequence(s);
+                UDDF_LOG_INFO(*context.driverServices, "MAX9295 link%u: applied d4xx i2c-array block (0x6B-0xAB)", m_link);
+            }
+        }
         uint8_t rb = 0U;
         const bool ok = static_cast<bool>(context.hwAccess->ReadI2C(serAddr, 0x0044U, 1, &rb, I2CAddressMode::Physical));
         UDDF_LOG_INFO(*context.driverServices,
