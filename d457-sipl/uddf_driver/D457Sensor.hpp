@@ -105,6 +105,7 @@ private:
 
     uint8_t  m_deviceIndex {0U};
     uint8_t  m_numSensors {1U};   // total D457 sensors in this config (2 = simultaneous depth+RGB)
+    uint8_t  m_link {0U};         // GMSL link (0..3) from GmslModuleContext::Config.linkIndex — multi-camera
     uint8_t  m_i2cAddr {D457_MUX_I2C_ADDR};
     uint32_t m_width {1280U};
     uint32_t m_height {720U};

@@ -1,0 +1,55 @@
+/*
+ * d457_query.cpp — SIPL query for 2x D457 (2 cameras x depth+RGB+IR = 6 pipelines) on deser A.
+ * Single module (enableMasks 0x0001, NO framework replication) -> 6 sensorInfo -> 6 pipelines.
+ * VI capture VC = vcIdSrc: link0 = 0/1/2, link1 = 4/5/6 (distinct -> no collision). The deser HSL
+ * (MAX967XXHsl mapping_A) remaps each camera's native VC0/1/2 to those output VCs (link1 via extended-VC).
+ * deviceIndex encodes (link,stream): link=idx/3, stream=idx%3 (D457Sensor). link0 DS5@0x1a, link1@0x2a.
+ * Resolution is data-driven via D457_WIDTH/HEIGHT/FPS.
+ */
+#include <cstdlib>
+#include <string>
+
+extern "C" const char* CNvMQuery_GetJsonData(void)
+{
+    auto envOr = [](const char* k, const char* d) {
+        const char* v = std::getenv(k);
+        return std::string((v != nullptr && *v != '\0') ? v : d);
+    };
+    const std::string W = envOr("D457_WIDTH", "1280");
+    const std::string H = envOr("D457_HEIGHT", "720");
+    const std::string F = envOr("D457_FPS", "30.0");
+
+    // (i2cAddress, vcIdSrc/Dst, desc) per deviceIndex 0..5
+    struct S { const char* addr; int vc; const char* d; };
+    const S s[6] = {
+        {"0x1a", 0, "link0 depth VC0"}, {"0x1a", 1, "link0 rgb VC1"},  {"0x1a", 2, "link0 ir VC2"},
+        {"0x2a", 4, "link1 depth VC4"}, {"0x2a", 5, "link1 rgb VC5"},  {"0x2a", 6, "link1 ir VC6"},
+    };
+    std::string sens;
+    for (int i = 0; i < 6; ++i) {
+        if (i) sens += ",";
+        sens +=
+            "{\"name\":\"D457\",\"id\":" + std::to_string(i) +
+            ",\"description\":\"" + s[i].d + "\",\"i2cAddress\":\"" + s[i].addr +
+            "\",\"numContext\":1,\"isTriggerModeEnabled\":false,\"deviceIndex\":" + std::to_string(i) +
+            ",\"virtualChannels\":[{\"vcIdSrc\":" + std::to_string(s[i].vc) +
+            ",\"vcIdDst\":" + std::to_string(s[i].vc) +
+            ",\"cfa\":\"rggb\",\"embeddedTopLines\":0,\"embeddedBottomLines\":0,\"inputFormat\":\"raw16\"" +
+            ",\"width\":" + W + ",\"height\":" + H + ",\"fps\":" + F +
+            ",\"isEmbeddedDataTypeEnabled\":false}]}";
+    }
+    static std::string json =
+        "[ { \"cameraConfigs\":[ { \"name\":\"D457_Camera\",\"moduleDriverName\":\"D457\",\"type\":\"GMSL\","
+        "\"description\":\"2x D457 depth+rgb+ir\",\"serInfo\":{\"name\":\"MAX9295\",\"i2cAddress\":\"0x40\"},"
+        "\"linkMode\":\"LINK_MODE_GMSL2_6GBPS\",\"fsyncMode\":\"osc_manual\","
+        "\"mipiSettings\":{\"dphyRate\":594000,\"phyMode\":\"dphy\",\"lanes\":2},"
+        "\"sensorInfo\":[" + sens + "],\"cryptoConfigName\":\"\" } ] },"
+        "{ \"platformTransportSettings\":[ { \"name\":\"advantech_mic742_thor\","
+        "\"description\":\"Advantech MIC-742 Thor D457 GMSL CSI-A\",\"boardIdPrefix\":\"NVIDIA Jetson AGX Thor\","
+        "\"enableMasks\":[\"0x0001\"],\"transportSettings\":[ { \"name\":\"transportSettings_d457_AB\","
+        "\"type\":\"GMSL\",\"description\":\"CSI-AB\",\"csiPort\":\"csi-ab\","
+        "\"deserInfo\":{\"name\":\"Max96712GmslDeserializer\",\"i2cAddress\":\"0x29\"},"
+        "\"powerControlInfo\":{\"moduleInfo\":{\"name\":\"MAX20087\",\"i2cAddress\":\"0x28\"}},"
+        "\"i2cDevice\":9,\"desI2CPort\":0,\"phyMode\":\"dphy\",\"groupInitProg\":true} ] } ] } ]";
+    return json.c_str();
+}

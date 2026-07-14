@@ -147,15 +147,19 @@ bool D457Sensor::Configure(const GmslModuleContext::Config& config)
 {
     if (m_deviceIndex < config.sensorInfoList.size()) {
         const auto& s = config.sensorInfoList[m_deviceIndex];
-        m_i2cAddr = (s.i2cAddress != 0U) ? s.i2cAddress : D457_MUX_I2C_ADDR;
         m_width   = s.resolution.width  ? s.resolution.width  : m_width;
         m_height  = s.resolution.height ? s.resolution.height : m_height;
         m_fps     = (s.frameRate > 0.0f) ? s.frameRate : m_fps;
     }
-    // Resolve this instance's stream from the module-wide stream list (D457_STREAMS env / numSensors).
-    // deviceIndex picks the stream; the stream's canonical VC is fixed (depth0/rgb1/ir2). See BuildStreamList.
     const size_t numSensors = config.sensorInfoList.size();
     m_numSensors = (numSensors == 0U) ? 1U : static_cast<uint8_t>(numSensors);
+    // MULTI-CAMERA: with mask 0x00X1 the framework replicates this module once PER enabled link and
+    // sets config.linkIndex per instance. Each link's DS5 answers at 0x1a + link*0x10 (link0=0x1a,
+    // link1=0x2a; deser-translated, confirmed via d4xx enumeration). The per-link OUTPUT CSI VC
+    // (link0=0/1/2, link1=4/5/6) is applied by the nvsipl_camera VC-offset patch (VI side) + the deser
+    // HSL (deser output); the driver's m_vc stays the NATIVE canonical VC (0/1/2) for the DS5 mdvc tag.
+    m_link    = (config.linkIndex <= 3U) ? static_cast<uint8_t>(config.linkIndex) : 0U;
+    m_i2cAddr = static_cast<uint8_t>(D457_MUX_I2C_ADDR + m_link * 0x10U);
     const auto streams = BuildStreamList(m_numSensors);
     m_stream = (m_deviceIndex < streams.size()) ? streams[m_deviceIndex] : D457Stream::DEPTH_Z16;
     m_vc     = CanonicalVc(m_stream);
@@ -168,21 +172,19 @@ bool D457Sensor::Configure(const GmslModuleContext::Config& config)
         default:
             m_cfgStatusReg = D457_DEPTH_CONFIG_STATUS; m_streamStatusReg = D457_DEPTH_STREAM_STATUS; break;
     }
-    // Build the module-wide (stream, resolution) list that sensor 0 programs in StartStreaming.
-    // deviceIndex i -> stream list[i] -> its query sensorInfo[i].resolution. Falls back to this
-    // instance's parsed resolution when a matching sensorInfo entry is absent.
+    // Streams this module's owner (deviceIndex 0) programs+plays on ITS link's DS5 in StartStreaming.
     m_streamCfgs.clear();
+    const uint16_t w = static_cast<uint16_t>(m_width);
+    const uint16_t h = static_cast<uint16_t>(m_height);
     for (size_t i = 0; i < streams.size(); ++i) {
-        uint16_t w = static_cast<uint16_t>(m_width);
-        uint16_t h = static_cast<uint16_t>(m_height);
-        float    f = m_fps;
+        uint16_t ww = w, hh = h; float ff = m_fps;
         if (i < config.sensorInfoList.size()) {
             const auto& si = config.sensorInfoList[i];
-            if (si.resolution.width)  { w = static_cast<uint16_t>(si.resolution.width); }
-            if (si.resolution.height) { h = static_cast<uint16_t>(si.resolution.height); }
-            if (si.frameRate > 0.0f)  { f = si.frameRate; }
+            if (si.resolution.width)  { ww = static_cast<uint16_t>(si.resolution.width); }
+            if (si.resolution.height) { hh = static_cast<uint16_t>(si.resolution.height); }
+            if (si.frameRate > 0.0f)  { ff = si.frameRate; }
         }
-        m_streamCfgs.push_back(D457ModeReq{ streams[i], w, h, static_cast<uint16_t>(f + 0.5f) });
+        m_streamCfgs.push_back(D457ModeReq{ streams[i], ww, hh, static_cast<uint16_t>(ff + 0.5f) });
     }
     return true;
 }
@@ -190,20 +192,19 @@ bool D457Sensor::Configure(const GmslModuleContext::Config& config)
 uddf::ddi::DeviceTable D457Sensor::GetDeviceTable() const
 {
     uddf::ddi::DeviceTable t;
-    // The D457's two "sensors" (depth + RGB) are the SAME physical DS5 mux at ONE I2C address
-    // (0x1A->phys 0x10). Each sensor's device table is aggregated into the module's HSL I2C encoder,
-    // which REJECTS a duplicate mapping ("Failed to add I2C device to HSL encoder" -> SetPlatformConfig
-    // status 10). So only deviceIndex 0 registers the mux; the higher-index sensor(s) share it — their
-    // register writes to 0x1A still route through the mapping sensor 0 registered.
+    // Each link's DS5 mux is registered ONCE, by that link's owner (streamIdx 0). The HSL I2C encoder
+    // rejects a duplicate mapping, so the non-owner streams on a link register nothing (their writes to
+    // the mux route through the owner's mapping). Multi-cam: link0 owner (deviceIndex 0) registers
+    // 0x1a, link1 owner (deviceIndex 3) registers 0x2a — distinct virtual addresses, so no duplicate.
     if (m_deviceIndex != 0U) {
-        return t;  // empty: shared DS5 mux already registered by sensor 0
+        return t;  // empty: this link's DS5 mux already registered by this module's deviceIndex 0
     }
     t.push_back(uddf::ddi::DeviceTableEntry{
-        .i2cAddress    = m_i2cAddr,
+        .i2cAddress    = m_i2cAddr,          // per-link virtual: link0=0x1a, link1=0x2a
         .offsetWidth   = 2U,                 // DS5 registers use 16-bit offsets
         .dataWidth     = 2U,                 // 16-bit values (LE)
         .flags         = 0U,
-        .hslI2cAddress = D457_MUX_PHYS_ADDR,  // physical def-addr (0x10): framework maps 0x1A->0x10
+        .hslI2cAddress = D457_MUX_PHYS_ADDR,  // physical def-addr (0x10): framework maps virtual->0x10
         .deviceIndex   = m_deviceIndex,
     });
     return t;
@@ -244,7 +245,7 @@ bool D457Sensor::RunRegTable(const GmslModuleContext& context,
     uddf::cdi::IHSLDynamicSequence& seq = hw.GetDynamicSequence();
     // The DS5 mux answers at Physical I2C address 0x1A over the GMSL tunnel (confirmed by
     // probe: Virtual-mode resolution and Physical 0x10 do not reach it). Use Physical 0x1A.
-    uddf::cdi::II2CBuilder* b = seq.i2cBuilder(D457_MUX_I2C_ADDR, uddf::cdi::I2CAddressMode::Physical);
+    uddf::cdi::II2CBuilder* b = seq.i2cBuilder(m_i2cAddr, uddf::cdi::I2CAddressMode::Physical);
     if (b == nullptr) { return false; }
 
     for (size_t i = 0; i < count; ++i) {
@@ -286,7 +287,7 @@ bool D457Sensor::WriteReg16(uint16_t reg, uint16_t val)
     if (m_hwAccess == nullptr) { return false; }
     auto& hw = *m_hwAccess;
     uddf::cdi::IHSLDynamicSequence& seq = hw.GetDynamicSequence();
-    uddf::cdi::II2CBuilder* b = seq.i2cBuilder(D457_MUX_I2C_ADDR, uddf::cdi::I2CAddressMode::Physical);
+    uddf::cdi::II2CBuilder* b = seq.i2cBuilder(m_i2cAddr, uddf::cdi::I2CAddressMode::Physical);
     if (b == nullptr) { return false; }
     b->write(swap16(reg), swap16(val), uddf::cdi::I2CWriteFlags::NO_READ_VERIFY);
     hw.SubmitSequence(seq);
@@ -305,7 +306,7 @@ bool D457Sensor::ReadReg16(uint16_t reg, uint16_t& valOut)
     //   (see FINDINGS gotchas) — reads are safe only for the depth/IR single-stream case.
     uint8_t raw[2] = {0U, 0U};
     const uddf::cdi::HSLResult r =
-        m_hwAccess->ReadI2C(D457_MUX_I2C_ADDR, swap16(reg), sizeof(raw), raw,
+        m_hwAccess->ReadI2C(m_i2cAddr, swap16(reg), sizeof(raw), raw,
                             uddf::cdi::I2CAddressMode::Physical);
     if (!IsOk(r)) { return false; }
     valOut = static_cast<uint16_t>(raw[0] | (static_cast<uint16_t>(raw[1]) << 8));
@@ -324,10 +325,12 @@ bool D457Sensor::StartStreaming(const GmslModuleContext& context)
     // disrupts the RGB stream (it stops after ~3-4 frames → VI PIX_SHORT → both pipelines torn down).
     // So sensor 0 configures and plays BOTH streams in ONE submitted sequence, and the higher-index
     // sensor is capture-only (its SIPL pipeline still captures its VC; it just issues no mux I2C).
-    if (m_numSensors >= 2U && m_deviceIndex != 0U) {
+    // Owner = deviceIndex 0 of this (per-link) module: configures+plays ITS link's DS5 (0x1a+link*0x10).
+    // The other streams on the link are capture-only (their SIPL pipeline still captures its VC).
+    if (m_deviceIndex != 0U) {
         UDDF_LOG_INFO(*context.driverServices,
-                      "D457[%u] StartStreaming: capture-only VC%u (DS5 driven by sensor 0)",
-                      m_deviceIndex, m_vc);
+                      "D457[%u] StartStreaming: capture-only VC%u link%u (DS5 driven by deviceIndex 0)",
+                      m_deviceIndex, m_vc, m_link);
         return true;
     }
 
@@ -336,8 +339,8 @@ bool D457Sensor::StartStreaming(const GmslModuleContext& context)
     // the shared mux while a stream already runs (which stalls the RealTek RGB ISP). The list is the
     // same BuildStreamList() every instance computes, so it matches the query's sensorInfo order.
     UDDF_LOG_INFO(*context.driverServices,
-                  "D457[%u] StartStreaming: programming %zu stream(s) (numSensors=%u)",
-                  m_deviceIndex, m_streamCfgs.size(), m_numSensors);
+                  "D457[%u] StartStreaming: link%u DS5@0x%02x programming %zu stream(s) (numSensors=%u)",
+                  m_deviceIndex, m_link, m_i2cAddr, m_streamCfgs.size(), m_numSensors);
     // Stop any prior streams first (realsense start() does this), then play each.
     for (const auto& cfg : m_streamCfgs) {
         size_t sn = 0;
@@ -385,7 +388,7 @@ bool D457Sensor::StopStreaming(const GmslModuleContext& context)
     if (context.hwAccess == nullptr) { return false; }
     // Mirror StartStreaming: sensor 0 owns all DS5 I/O. The capture-only higher-index sensor issues no
     // mux I2C (avoids perturbing the shared mux while the other stream may still run).
-    if (m_numSensors >= 2U && m_deviceIndex != 0U) {
+    if (m_deviceIndex != 0U) {
         UDDF_LOG_INFO(*context.driverServices, "D457[%u] StopStreaming: capture-only (no-op)", m_deviceIndex);
         return true;
     }
