@@ -34,21 +34,20 @@ uddf::ddi::DeviceTable MAX9295::GetDeviceTable() const {
     // 0x0006) to isolate their link during address setup (see SerInit/SerFinalizeInit). i2cBuilder is
     // gated to device-table addresses, so register the deser (0x29, same 16-bit-offset/8-bit-data
     // format) here. Only the non-owner links actually issue REG6 writes; link0 never does.
+    deviceTable.push_back(uddf::ddi::DeviceTableEntry{
+        .i2cAddress = 0x29, .offsetWidth = 2, .dataWidth = 1, .flags = 0,   // deser (REG6 isolation)
+    });
+    // Unique reassigned ser addresses (i2cBuilder is device-table-gated). NO DUPLICATES allowed (the HSL
+    // encoder rejects them -> SetPlatformConfig status 10). Base 0x40 is already added above, so only add
+    // 0x40+link for link>0 (isolation scheme). Always add 0x41+link (NOISO scheme reassign target).
     if (m_link != 0U) {
         deviceTable.push_back(uddf::ddi::DeviceTableEntry{
-            .i2cAddress = 0x29,
-            .offsetWidth = 2,
-            .dataWidth = 1,
-            .flags = 0,
-        });
-        // reassigned ser address (0x40+link) — so we can read it back for diagnostics.
-        deviceTable.push_back(uddf::ddi::DeviceTableEntry{
-            .i2cAddress = static_cast<uint16_t>(0x40U + m_link),
-            .offsetWidth = 2,
-            .dataWidth = 1,
-            .flags = 0,
+            .i2cAddress = static_cast<uint16_t>(0x40U + m_link), .offsetWidth = 2, .dataWidth = 1, .flags = 0,
         });
     }
+    deviceTable.push_back(uddf::ddi::DeviceTableEntry{
+        .i2cAddress = static_cast<uint16_t>(0x41U + m_link), .offsetWidth = 2, .dataWidth = 1, .flags = 0,
+    });
     return deviceTable;
 }
 
@@ -127,7 +126,7 @@ bool MAX9295::SerInit(GmslSerializerContext const& context) {
     // i2c device (0x29) reachable from the serializer's hwAccess. link0 keeps the proven no-isolation
     // path. Ordering (verified on-rig): SerInit → InitWithSerializer → sensor Init →
     // FinalizeInitWithSerializer → SerFinalizeInit, per link, sequentially.
-    if (m_link != 0U) {
+    if (m_link != 0U && std::getenv("D457_NOISO") == nullptr) {
         auto& hwd = *context.hwAccess;
         uddf::cdi::IHSLDynamicSequence& seqd = hwd.GetDynamicSequence();
         uddf::cdi::II2CBuilder* bd = seqd.i2cBuilder(0x29U, I2CAddressMode::Physical);
@@ -237,6 +236,32 @@ bool MAX9295::SerFinalizeInit(GmslSerializerContext const& context) {
         UDDF_LOG_INFO(*context.driverServices,
             "Serializer: configuring INTERNAL FSYNC (MFP9/MFP10 RX ID=8)");
         context.hwAccess->SubmitSequence(hsl::set_internal_fsync_max9295d);
+    }
+
+    // ── NOISO scheme (D457_NOISO): NO deser link isolation at all → link0's RGB reference clock
+    // (RCLKOUT) is never dropped, so link0 RGB survives. Each link reassigns ITS OWN serializer to a
+    // unique addr 0x41+link at its own SerFinalizeInit, then writes its DS5 translation there. This is
+    // collision-free ONLY IF the framework enables links incrementally (this link's SerFinalizeInit runs
+    // before the next link is enabled), so this link is the only one still at 0x40 when we reassign it.
+    // Applies to ALL links incl link0 (link0 must vacate 0x40 so link1's later config doesn't hit it).
+    if (std::getenv("D457_NOISO") != nullptr) {
+        const uint8_t serAddr    = static_cast<uint8_t>(0x41U + m_link);
+        const uint8_t newSerAddr = static_cast<uint8_t>(serAddr << 1);
+        const uint8_t srcA       = static_cast<uint8_t>((0x1AU + m_link * 0x10U) << 1);  // DS5 alias<<1
+        auto& hw = *context.hwAccess;
+        { uddf::cdi::IHSLDynamicSequence& s = hw.GetDynamicSequence();
+          uddf::cdi::II2CBuilder* b = s.i2cBuilder(hsl::MAX9295_I2C_ADDRESS_0x40, I2CAddressMode::Physical);
+          if (b != nullptr) { b->write(0x0000U, newSerAddr, I2CWriteFlags::NO_READ_VERIFY); hw.SubmitSequence(s); } }
+        { uddf::cdi::IHSLDynamicSequence& s = hw.GetDynamicSequence();
+          uddf::cdi::II2CBuilder* b = s.i2cBuilder(serAddr, I2CAddressMode::Physical);
+          if (b != nullptr) { b->write(0x0044U, srcA, I2CWriteFlags::NO_READ_VERIFY);
+                              b->write(0x0045U, 0x20U, I2CWriteFlags::NO_READ_VERIFY); hw.SubmitSequence(s); } }
+        uint8_t rb = 0U;
+        const bool ok = static_cast<bool>(context.hwAccess->ReadI2C(serAddr, 0x0044U, 1, &rb, I2CAddressMode::Physical));
+        UDDF_LOG_INFO(*context.driverServices,
+            "MAX9295 link%u: NOISO reassign 0x40->0x%02x, DS5 xlat 0x0044=0x%02x (alias 0x%02x->0x10) rb_ok=%d=0x%02x",
+            m_link, serAddr, srcA, (0x1AU + m_link * 0x10U), ok ? 1 : 0, rb);
+        return true;
     }
 
     // MULTI-CAMERA: reassign this link's serializer to a UNIQUE i2c address (0x40 + link) as the LAST
