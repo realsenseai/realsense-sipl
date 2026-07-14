@@ -261,20 +261,20 @@ bool MAX9295::SerFinalizeInit(GmslSerializerContext const& context) {
         // serializer NOT forward other links' aliases onto its local bus (so link1's 0x2a doesn't stall
         // link0's RGB). Applied on this link's unique reassigned ser addr.
         if (std::getenv("D457_SER_ISOL") != nullptr) {
+            // Config registers a working d4xx serializer sets that SIPL's set_ser_video_phy_clock_max9295a
+            // does NOT — read live from d4xx (both links identical). 0x0001=0x08 is the MAX9295 i2c/CC
+            // config the investigator flagged for pass-through. Applied on this link's unique ser addr.
             uddf::cdi::IHSLDynamicSequence& s = hw.GetDynamicSequence();
             uddf::cdi::II2CBuilder* b = s.i2cBuilder(serAddr, I2CAddressMode::Physical);
             if (b != nullptr) {
-                b->write(0x006BU, 0x00U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x0073U, 0x00U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x007BU, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x0083U, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x008BU, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x0093U, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x009BU, 0x00U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x00A3U, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
-                b->write(0x00ABU, 0x10U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0001U, 0x08U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0007U, 0xF6U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0008U, 0x07U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0009U, 0x35U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x000BU, 0x66U, I2CWriteFlags::NO_READ_VERIFY);
+                b->write(0x0046U, 0x08U, I2CWriteFlags::NO_READ_VERIFY);
                 hw.SubmitSequence(s);
-                UDDF_LOG_INFO(*context.driverServices, "MAX9295 link%u: applied d4xx i2c-array block (0x6B-0xAB)", m_link);
+                UDDF_LOG_INFO(*context.driverServices, "MAX9295 link%u: applied d4xx cfg regs (0x01,07,08,09,0B,46)", m_link);
             }
         }
         uint8_t rb = 0U;
