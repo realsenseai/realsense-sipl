@@ -13,6 +13,9 @@
 #include "MAX9295.hpp"
 #include "MAX9295Hsl.hpp"
 
+#include <chrono>   // std::chrono::milliseconds (multi-camera link-isolation settle delay)
+#include <cstdlib>  // getenv (multi-camera A/B toggles for ser translation/reassign)
+
 // MAX9295 SERIALIZER DRIVER
 namespace uddf::cdd::max9295 {
 
@@ -27,6 +30,25 @@ uddf::ddi::DeviceTable MAX9295::GetDeviceTable() const {
         .dataWidth = 1,
         .flags = 0,
     });
+    // MULTI-CAMERA: link>0 serializers need to write the deserializer's link-enable register (REG6 @
+    // 0x0006) to isolate their link during address setup (see SerInit/SerFinalizeInit). i2cBuilder is
+    // gated to device-table addresses, so register the deser (0x29, same 16-bit-offset/8-bit-data
+    // format) here. Only the non-owner links actually issue REG6 writes; link0 never does.
+    if (m_link != 0U) {
+        deviceTable.push_back(uddf::ddi::DeviceTableEntry{
+            .i2cAddress = 0x29,
+            .offsetWidth = 2,
+            .dataWidth = 1,
+            .flags = 0,
+        });
+        // reassigned ser address (0x40+link) — so we can read it back for diagnostics.
+        deviceTable.push_back(uddf::ddi::DeviceTableEntry{
+            .i2cAddress = static_cast<uint16_t>(0x40U + m_link),
+            .offsetWidth = 2,
+            .dataWidth = 1,
+            .flags = 0,
+        });
+    }
     return deviceTable;
 }
 
@@ -95,6 +117,40 @@ bool MAX9295::SerInit(GmslSerializerContext const& context) {
     // Step 1: Change serializer I2C address from 0x80 to 0x94
     // TODO: Use Virtual address from GmslSerializerConfig.addressTranslations in context
 
+    // MULTI-CAMERA LINK ISOLATION (d4xx max96712_setup_link). For link>0 the serializer's address
+    // config (translation reg 0x0044 below, and the reg-0x0000 reassign in SerFinalizeInit) is written
+    // to physical 0x40 — but the GMSL control channel broadcasts to EVERY enabled link, and link0's
+    // serializer is also at 0x40. Without isolation those writes hit both serializers, corrupting the
+    // per-link DS5 translation so the link>0 DS5 (0x2a/0x3a/…) NACKs. Isolate this link on the
+    // deserializer (MAX96712 REG6 @ 0x0006 = 0xF0 | (1<<link)) so only THIS link's serializer receives
+    // them; re-enabled in SerFinalizeInit after the ser address is made unique. The deser is a local
+    // i2c device (0x29) reachable from the serializer's hwAccess. link0 keeps the proven no-isolation
+    // path. Ordering (verified on-rig): SerInit → InitWithSerializer → sensor Init →
+    // FinalizeInitWithSerializer → SerFinalizeInit, per link, sequentially.
+    if (m_link != 0U) {
+        auto& hwd = *context.hwAccess;
+        uddf::cdi::IHSLDynamicSequence& seqd = hwd.GetDynamicSequence();
+        uddf::cdi::II2CBuilder* bd = seqd.i2cBuilder(0x29U, I2CAddressMode::Physical);
+        if (bd != nullptr) {
+            const uint8_t reg6 = static_cast<uint8_t>(0xF0U | (1U << m_link));
+            bd->write(0x0006U, reg6, I2CWriteFlags::NO_READ_VERIFY);   // isolate: only this link
+            seqd.delay(std::chrono::milliseconds(20));
+            bd->write(0x0018U, 0x0FU, I2CWriteFlags::NO_READ_VERIFY);  // CTRL1 one-shot reset (d4xx setup_link)
+            seqd.delay(std::chrono::milliseconds(100));                // re-lock the isolated link
+            hwd.SubmitSequence(seqd);
+            UDDF_LOG_INFO(*context.driverServices,
+                "MAX9295 link%u: ISOLATE+RESET via deser REG6=0x%02x, CTRL1=0x0F", m_link, reg6);
+            // DIAGNOSTIC: is THIS link's serializer reachable at 0x40 now that only it is enabled?
+            uint8_t di = 0U;
+            const bool ok = static_cast<bool>(context.hwAccess->ReadI2C(
+                hsl::MAX9295_I2C_ADDRESS_0x40, DEVICE_ID_REG, 1, &di, I2CAddressMode::Physical));
+            UDDF_LOG_INFO(*context.driverServices,
+                "MAX9295 link%u: post-isolate ser 0x40 devID read ok=%d val=0x%02x", m_link, ok ? 1 : 0, di);
+        } else {
+            UDDF_LOG_ERROR(*context.driverServices, "MAX9295 link%u: deser i2cBuilder null (isolate)", m_link);
+        }
+    }
+
     // Step 2: Configure I2C translator A for HAWK1 sensor address translation
     // TODO: Use Virtual addresses from GmslSerializerConfig.addressTranslations in context
     // to set the translator A for the sensor addresses, when multiple HAWKs are present.
@@ -106,7 +162,7 @@ bool MAX9295::SerInit(GmslSerializerContext const& context) {
     // NACKs. Override the translation source per link: link N ser maps virtual (0x1A + N*0x10) -> the
     // DS5 def-addr 0x10 (dst 0x0045 = 0x10<<1 = 0x20, unchanged). link0=0x1A, link1=0x2A, ... . This
     // matches D457Sensor::m_i2cAddr and the nvsipl_camera per-link sensor-address offset.
-    if (m_link != 0U) {
+    if (m_link != 0U && std::getenv("D457_SER_XLAT") != nullptr) {
         const uint8_t srcAddr = static_cast<uint8_t>((0x1AU + m_link * 0x10U) << 1);
         auto& hw = *context.hwAccess;
         uddf::cdi::IHSLDynamicSequence& seq = hw.GetDynamicSequence();
@@ -187,15 +243,59 @@ bool MAX9295::SerFinalizeInit(GmslSerializerContext const& context) {
     // MAX9295 self-address is reg 0x0000, bits[7:1]. Done after all ser config (which uses 0x40); the
     // DS5 control path uses the sensor's 0x2a translation (deser tunnel), not the serializer's own addr.
     if (m_link != 0U) {
-        const uint8_t newSerAddr = static_cast<uint8_t>((0x40U + m_link) << 1);
-        auto& hw = *context.hwAccess;
-        uddf::cdi::IHSLDynamicSequence& seq = hw.GetDynamicSequence();
-        uddf::cdi::II2CBuilder* b = seq.i2cBuilder(hsl::MAX9295_I2C_ADDRESS_0x40, I2CAddressMode::Physical);
-        if (b != nullptr) {
-            b->write(0x0000U, newSerAddr, I2CWriteFlags::NO_READ_VERIFY);
-            hw.SubmitSequence(seq);
+        if (std::getenv("D457_SER_REASSIGN") != nullptr) {
+            const uint8_t newSerAddr = static_cast<uint8_t>((0x40U + m_link) << 1);
+            auto& hw = *context.hwAccess;
+            uddf::cdi::IHSLDynamicSequence& seq = hw.GetDynamicSequence();
+            uddf::cdi::II2CBuilder* b = seq.i2cBuilder(hsl::MAX9295_I2C_ADDRESS_0x40, I2CAddressMode::Physical);
+            if (b != nullptr) {
+                b->write(0x0000U, newSerAddr, I2CWriteFlags::NO_READ_VERIFY);
+                hw.SubmitSequence(seq);
+                UDDF_LOG_INFO(*context.driverServices,
+                    "MAX9295 link%u: reassigned serializer i2c 0x40 -> 0x%02x", m_link, 0x40U + m_link);
+            }
+        }
+
+        // END of this link's isolated ser-config window (opened in SerInit): the serializer now has a
+        // UNIQUE address (0x40+link), so re-enable it alongside the already-configured lower links. Links
+        // are brought up in order 0..N, so links 0..m_link are done -> REG6 = 0xF0 | ((1<<(link+1))-1).
+        // The last link's SerFinalizeInit therefore leaves ALL links enabled for streaming.
+        auto& hwd = *context.hwAccess;
+        uddf::cdi::IHSLDynamicSequence& seqd = hwd.GetDynamicSequence();
+        uddf::cdi::II2CBuilder* bd = seqd.i2cBuilder(0x29U, I2CAddressMode::Physical);
+        if (bd != nullptr) {
+            // D457_ALONE=1: leave ONLY this link enabled (diagnostic — probe link1 DS5 without link0).
+            const uint8_t reg6 = (std::getenv("D457_ALONE") != nullptr)
+                ? static_cast<uint8_t>(0xF0U | (1U << m_link))
+                : static_cast<uint8_t>(0xF0U | ((1U << (m_link + 1U)) - 1U));
+            bd->write(0x0006U, reg6, I2CWriteFlags::NO_READ_VERIFY);
+            seqd.delay(std::chrono::milliseconds(20));
+            hwd.SubmitSequence(seqd);
             UDDF_LOG_INFO(*context.driverServices,
-                "MAX9295 link%u: reassigned serializer i2c 0x40 -> 0x%02x", m_link, 0x40U + m_link);
+                "MAX9295 link%u: RE-ENABLE links via deser REG6=0x%02x", m_link, reg6);
+        }
+        // AUTHORITATIVE DS5 translation (must be LAST — the SIPL framework programs this link's ser
+        // translation from the query DS5 address, which for the replicated -m 0x0011 module is the
+        // UN-offset 0x1a; that clobbers link1 with 0x1a->0x10 (colliding with link0) so its real alias
+        // 0x2a NACKs. Re-write the correct per-link alias (0x1a+link*0x10 -> 0x10) on THIS link's now-
+        // UNIQUE serializer address (0x40+link), so it lands only here and survives as the final value.
+        {
+            const uint8_t serAddr = static_cast<uint8_t>(0x40U + m_link);
+            const uint8_t srcA = static_cast<uint8_t>((0x1AU + m_link * 0x10U) << 1);  // alias<<1
+            auto& hwx = *context.hwAccess;
+            uddf::cdi::IHSLDynamicSequence& seqx = hwx.GetDynamicSequence();
+            uddf::cdi::II2CBuilder* bx = seqx.i2cBuilder(serAddr, I2CAddressMode::Physical);
+            if (bx != nullptr) {
+                bx->write(0x0044U, srcA, I2CWriteFlags::NO_READ_VERIFY);  // SRC = alias
+                bx->write(0x0045U, 0x20U, I2CWriteFlags::NO_READ_VERIFY); // DST = 0x10<<1
+                hwx.SubmitSequence(seqx);
+            }
+            uint8_t t_this = 0U;
+            const bool okt = static_cast<bool>(context.hwAccess->ReadI2C(
+                serAddr, 0x0044U, 1, &t_this, I2CAddressMode::Physical));
+            UDDF_LOG_INFO(*context.driverServices,
+                "MAX9295 link%u: FINAL DS5 xlat ser0x%02x[0x44]=0x%02x (want 0x%02x, alias 0x%02x->0x10) rb_ok=%d",
+                m_link, serAddr, t_this, srcA, (0x1AU + m_link * 0x10U), okt ? 1 : 0);
         }
     }
 
