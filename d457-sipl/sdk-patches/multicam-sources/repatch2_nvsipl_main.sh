@@ -20,6 +20,13 @@ ins='''
         if (std::holds_alternative<sensorconfig::GmslModule>(_m.moduleType)) {
             auto& _gm = std::get<sensorconfig::GmslModule>(_m.moduleType);
             const uint32_t _link = _gm.linkIndex;
+            // Output-VC placement must match the deser HSL: keep each link's streams inside ONE 4-VC
+            // extended-VC msb group and <= VC7 (Tegra VI ignores VC>=8). SPL=sensors/link, LPG=links per
+            // group = 4/SPL. offset = (link/LPG)*4 + (link%LPG)*SPL. SPL3: link0->0, link1->4 (=link*4).
+            // SPL2: link0->0, link1->2, link2->4, link3->6 (packed VC0-7).
+            const uint32_t _spl = static_cast<uint32_t>(_gm.sensorConfigs.size());
+            const uint32_t _lpg = (_spl >= 1U && (4U / _spl) >= 1U) ? (4U / _spl) : 1U;
+            const uint32_t _voff = (_link / _lpg) * 4U + (_link % _lpg) * _spl;
             if (_link != 0U && _link != UINT32_MAX) {
                 for (auto& _scv : _gm.sensorConfigs) {
                     std::visit([&](auto& _sc){
@@ -29,8 +36,8 @@ ins='''
                                 static_cast<uint16_t>(_sc.address.virtualI2CAddress.value() + _link * 0x10U);
                         }
                         for (auto& _vc : _sc.vcInfoList) {
-                            if (_vc.vcIdSrc != UINT32_MAX) { _vc.vcIdSrc += _link * static_cast<uint32_t>(_gm.sensorConfigs.size()); }
-                            if (_vc.vcIdDst != UINT32_MAX) { _vc.vcIdDst += _link * static_cast<uint32_t>(_gm.sensorConfigs.size()); }
+                            if (_vc.vcIdSrc != UINT32_MAX) { _vc.vcIdSrc += _voff; }
+                            if (_vc.vcIdDst != UINT32_MAX) { _vc.vcIdDst += _voff; }
                         }
                     }, _scv);
                 }

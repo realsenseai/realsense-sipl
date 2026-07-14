@@ -371,14 +371,18 @@ class MAX967XX(ABC):
                 NL  = int(os.environ.get('D457_MAP_LINKS', '2'))
                 SPL = int(os.environ.get('D457_MAP_STREAMS', '3'))
                 npipe = NL * SPL
+                LPG = max(1, 4 // SPL)   # links per extended-VC msb-group (4 VCs); SPL2->2, SPL3->1
                 write(0x00F4, 0x00)  # disable all pipes while (re)configuring
                 sel = {}
                 for L in range(NL):
                     for S in range(SPL):
                         P = L * SPL + S
-                        # PACKED output VC = L*SPL + S (contiguous 0..npipe-1). Keeps VCs <= 7 for up to 8
-                        # streams so extended-VC stays msb<=1 — the Tegra VI does NOT capture VC>=8.
-                        outVC = L * SPL + S
+                        # Output CSI VC placement: EACH link's streams MUST stay inside ONE 4-VC msb
+                        # group (a link's streams share one GMSL/ser; splitting them across the extended-VC
+                        # msb boundary breaks the deser routing). Also keep VC<=7 (Tegra VI ignores VC>=8).
+                        # => outVC = (L//LPG)*4 + (L%LPG)*SPL + S. SPL3: link0=VC0-2, link1=VC4-6 (=L*4).
+                        # SPL2: link0=0/1, link1=2/3, link2=4/5, link3=6/7 (packed VC0-7).
+                        outVC = (L // LPG) * 4 + (L % LPG) * SPL + S
                         base = 0x090B + 0x40 * P
                         vrx  = 0x0100 + 0x12 * P + (6 if P >= 5 else 0)
                         tx   = 0x0800 + 0x10 * P
