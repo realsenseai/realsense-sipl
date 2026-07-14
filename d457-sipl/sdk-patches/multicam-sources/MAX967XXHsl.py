@@ -371,6 +371,10 @@ class MAX967XX(ABC):
                 write(0x0910, 0x00)  # FS DST VC0
                 write(0x0911, 0x01)  # FE SRC VC0
                 write(0x0912, 0x01)  # FE DST VC0
+                write(0x0800, 0x00)  # pipe0 TX_EXT0-3 = vc_msb 0 (VC0<4) — explicit, avoid stale ext-VC
+                write(0x0801, 0x00)
+                write(0x0802, 0x00)
+                write(0x0803, 0x00)
                 write(0x0100, 0x23)  # pipe0 VIDEO_RX: DIS_PKT_DET
                 # --- pipe 1: VC1 RGB (0x1E -> 0x2E, stays on VC1) ---
                 write(0x094B, 0x0F)  # 4 maps (RGB 0x1E + IR 0x2E on VC1)
@@ -383,6 +387,10 @@ class MAX967XX(ABC):
                 write(0x0952, 0x41)  # FE DST VC1
                 write(0x0953, 0x6e)  # slot3 SRC VC1/0x2E (IR)
                 write(0x0954, 0x6e)  # slot3 DST VC1/0x2E
+                write(0x0810, 0x00)  # pipe1 TX_EXT0-3 = vc_msb 0 (VC1<4) — explicit, avoid stale ext-VC
+                write(0x0811, 0x00)
+                write(0x0812, 0x00)
+                write(0x0813, 0x00)
                 write(0x0112, 0x23)  # pipe1 VIDEO_RX: DIS_PKT_DET
                 # --- pipe 2: VC2 IR (0x2E passthrough, stays on VC2) --- base = 0x090B + 0x80
                 write(0x098B, 0x07)  # 3 maps: PIX+FS+FE
@@ -442,7 +450,7 @@ class MAX967XX(ABC):
                 write(0x0851, 0x04)
                 write(0x0852, 0x04)
                 write(0x0853, 0x04)
-                write(0x015A, 0x23)  # pipe5 VIDEO_RX (0x0100+0x12*5)
+                write(0x0160, 0x23)  # pipe5 VIDEO_RX (0x0100+0x12*5 +6 errata for P>=5 => 0x0160)
 
                 # Video pipeline Selection: pipe<-(link<<2)|ser_pipe. link0 ser0/1/2=0x0/1/2; link1=0x4/5/6.
                 write(0x00F0, 0x10)  # pipe0<-(L0,s0)=0x0 ; pipe1<-(L0,s1)=0x1

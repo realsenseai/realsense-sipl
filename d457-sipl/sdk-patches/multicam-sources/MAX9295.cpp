@@ -135,8 +135,10 @@ bool MAX9295::SerInit(GmslSerializerContext const& context) {
             const uint8_t reg6 = static_cast<uint8_t>(0xF0U | (1U << m_link));
             bd->write(0x0006U, reg6, I2CWriteFlags::NO_READ_VERIFY);   // isolate: only this link
             seqd.delay(std::chrono::milliseconds(20));
-            bd->write(0x0018U, 0x0FU, I2CWriteFlags::NO_READ_VERIFY);  // CTRL1 one-shot reset (d4xx setup_link)
-            seqd.delay(std::chrono::milliseconds(100));                // re-lock the isolated link
+            if (std::getenv("D457_ISO_RESET") != nullptr) {
+                bd->write(0x0018U, 0x0FU, I2CWriteFlags::NO_READ_VERIFY);  // CTRL1 one-shot reset (d4xx setup_link)
+                seqd.delay(std::chrono::milliseconds(100));                // re-lock the isolated link
+            }
             hwd.SubmitSequence(seqd);
             UDDF_LOG_INFO(*context.driverServices,
                 "MAX9295 link%u: ISOLATE+RESET via deser REG6=0x%02x, CTRL1=0x0F", m_link, reg6);
@@ -243,7 +245,7 @@ bool MAX9295::SerFinalizeInit(GmslSerializerContext const& context) {
     // MAX9295 self-address is reg 0x0000, bits[7:1]. Done after all ser config (which uses 0x40); the
     // DS5 control path uses the sensor's 0x2a translation (deser tunnel), not the serializer's own addr.
     if (m_link != 0U) {
-        if (std::getenv("D457_SER_REASSIGN") != nullptr) {
+        {
             const uint8_t newSerAddr = static_cast<uint8_t>((0x40U + m_link) << 1);
             auto& hw = *context.hwAccess;
             uddf::cdi::IHSLDynamicSequence& seq = hw.GetDynamicSequence();
@@ -270,6 +272,13 @@ bool MAX9295::SerFinalizeInit(GmslSerializerContext const& context) {
                 : static_cast<uint8_t>(0xF0U | ((1U << (m_link + 1U)) - 1U));
             bd->write(0x0006U, reg6, I2CWriteFlags::NO_READ_VERIFY);
             seqd.delay(std::chrono::milliseconds(20));
+            if (std::getenv("D457_FINAL_RESET") != nullptr) {
+                // d4xx does reset_oneshot with ALL links enabled so every link re-locks together and
+                // the RealTek RGB ISP on link0 (glitched by this link's isolation toggle) gets a clean
+                // clock before StartStreaming. Reset AFTER re-enabling all lower links.
+                bd->write(0x0018U, 0x0FU, I2CWriteFlags::NO_READ_VERIFY);
+                seqd.delay(std::chrono::milliseconds(100));
+            }
             hwd.SubmitSequence(seqd);
             UDDF_LOG_INFO(*context.driverServices,
                 "MAX9295 link%u: RE-ENABLE links via deser REG6=0x%02x", m_link, reg6);
