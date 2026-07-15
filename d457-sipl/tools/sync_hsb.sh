@@ -58,8 +58,16 @@ do_push() {
     for pair in "${NEWFILES[@]}"; do
         src="${pair%%:*}"; dst="${pair##*:}"
         say "  $src -> $dst"
-        "${SSH[@]}" "mkdir -p '$RIG_HSB/$(dirname "$dst")'"
-        "${SCP[@]}" -r "$HSB_LOCAL/$src" "$RIG_USER@$RIG_HOST:$RIG_HSB/$dst"
+        if [ -d "$HSB_LOCAL/$src" ]; then
+            "${SSH[@]}" "mkdir -p '$RIG_HSB/$dst'"
+            # Trailing "/." copies the DIRECTORY'S CONTENTS into an existing remote dir; without it
+            # `scp -r dir remote:existing_dir` nests a whole extra `existing_dir/dir/...` copy and
+            # silently leaves the real destination files untouched (bit us once already).
+            "${SCP[@]}" -r "$HSB_LOCAL/$src/." "$RIG_USER@$RIG_HOST:$RIG_HSB/$dst/"
+        else
+            "${SSH[@]}" "mkdir -p '$RIG_HSB/$(dirname "$dst")'"
+            "${SCP[@]}" "$HSB_LOCAL/$src" "$RIG_USER@$RIG_HOST:$RIG_HSB/$dst"
+        fi
     done
     for pair in "${WIRING[@]}"; do
         src="${pair%%:*}"; dst="${pair##*:}"
@@ -73,8 +81,12 @@ do_pull() {
     for pair in "${NEWFILES[@]}"; do
         src="${pair%%:*}"; dst="${pair##*:}"
         say "  $dst -> $src"
-        rm -rf "${HSB_LOCAL:?}/$src"
-        "${SCP[@]}" -r "$RIG_USER@$RIG_HOST:$RIG_HSB/$dst" "$HSB_LOCAL/$src"
+        if "${SSH[@]}" "[ -d '$RIG_HSB/$dst' ]"; then
+            mkdir -p "$HSB_LOCAL/$src"
+            "${SCP[@]}" -r "$RIG_USER@$RIG_HOST:$RIG_HSB/$dst/." "$HSB_LOCAL/$src/"
+        else
+            "${SCP[@]}" "$RIG_USER@$RIG_HOST:$RIG_HSB/$dst" "$HSB_LOCAL/$src"
+        fi
     done
     for pair in "${WIRING[@]}"; do
         src="${pair%%:*}"; dst="${pair##*:}"
@@ -88,6 +100,14 @@ do_build() {
     # The build dir was originally populated as root inside the HSB demo container (CUDA/nvcc is
     # only on the container's PATH there); rebuild the same way via docker/demo.sh, else cmake
     # fails to reconfigure ("Permission denied" on CMakeCache.txt, "Failed to find nvcc").
+    #
+    # NOTE: this only refreshes $RIG_HSB/build (bind-mounted, persists). The demo container's
+    # `import hololink` resolves a SEPARATE copy baked into the image at
+    # /usr/local/lib/python3.12/dist-packages/hololink/ -- since every `docker run` here uses
+    # --rm, any in-container fix-up to THAT path is discarded the moment the container exits, so
+    # it CANNOT be refreshed here (a later, separate container invocation would just see the stale
+    # image copy again). The actual player launch (run_d457_cams.sh) re-copies the fresh .so over
+    # that path as its own first step, in the SAME container invocation that then runs the player.
     say "rebuilding on rig inside the HSB demo container (targets: d457_sipl_capture, _python)"
     # demo.sh forwards args via an UNQUOTED `$*`, which word-splits any compound command (killing
     # `&&`/quoting) -- stage a real script file and pass just its path (one plain word) instead.

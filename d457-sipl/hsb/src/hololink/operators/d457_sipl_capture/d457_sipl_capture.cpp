@@ -37,6 +37,8 @@ void D457SIPLCaptureOp::setup(holoscan::OperatorSpec& spec)
         "Depth of the NvSIPL capture queue", 4U);
     spec.param(timeout_, "timeout", "Timeout",
         "Timeout for capture requests, in microseconds", 1000000U);
+    spec.param(strict_, "strict", "Strict",
+        "Throw on a per-camera buffer-wait timeout instead of skipping the tick", false);
 }
 
 nvidia::gxf::Expected<void> D457SIPLCaptureOp::buffer_release_callback(void* pointer)
@@ -92,20 +94,21 @@ void D457SIPLCaptureOp::list_available_configs(const std::string& json_config)
     }
 }
 
-std::string D457SIPLCaptureOp::stream_for_index(uint32_t camera_index) const
+std::string D457SIPLCaptureOp::stream_for_sensor(uint32_t total_sensors, uint32_t ordinal_in_module) const
 {
     // Single-sensor config: the driver selects the stream from D457_STREAM (or the `stream` param,
     // which we propagate to that env before Init). Label the one pipeline accordingly.
-    if (per_camera_state_.size() <= 1) {
+    if (total_sensors <= 1) {
         if (!stream_.empty()) {
             return stream_;
         }
         const char* s = std::getenv("D457_STREAM");
         return (s != nullptr && *s != '\0') ? std::string(s) : std::string("depth");
     }
-    // Multi-sensor config: deviceIndex convention 0=depth, 1=rgb, 2=ir (see query/d457_query.cpp and
-    // uddf_driver/D457Sensor.cpp BuildStreamList).
-    switch (camera_index) {
+    // Multi-sensor config: convention 0=depth, 1=rgb, 2=ir, by ORDINAL WITHIN THE OWNING MODULE
+    // (not a flat index across all modules/links -- see query/d457_query.cpp,
+    // query/d457_query_4cam.cpp and uddf_driver/D457Sensor.cpp BuildStreamList).
+    switch (ordinal_in_module) {
     case 0:
         return "depth";
     case 1:
@@ -114,6 +117,56 @@ std::string D457SIPLCaptureOp::stream_for_index(uint32_t camera_index) const
         return "ir";
     default:
         return "depth";
+    }
+}
+
+void D457SIPLCaptureOp::apply_link_offsets()
+{
+    // The query engine replicates the D457 module once per enabled GMSL link with IDENTICAL VCs and
+    // i2c address; every link beyond 0 must be offset before SetPlatformCfg/Init so its pipelines
+    // land on distinct Tegra VI virtual channels and reach that link's own DS5 over i2c. This is an
+    // exact port of the nvsipl_camera app patch (sdk-patches/multicam-sources/
+    // repatch2_nvsipl_main.sh) -- the formula MUST stay identical to that script's, since it has to
+    // match the deser HSL pixel map (MAX967XXHsl.py) placement byte-for-byte, or specific streams
+    // capture 0 frames (see .triage/HANDOVER-d457-sipl-multilink-impl.md, root causes 1 and 3).
+    // Sensor ids are left untouched: nvsipl_camera's identical patch doesn't touch them either, and
+    // Stage 2/3 both captured correct distinct per-stream frame counts through it, so SIPL's
+    // internal per-sensor id allocation already differentiates replicated modules.
+    for (auto& module : sipl_config_.modules) {
+        if (!std::holds_alternative<nvsipl::sensorconfig::GmslModule>(module.moduleType)) {
+            continue;
+        }
+        auto& gmsl = std::get<nvsipl::sensorconfig::GmslModule>(module.moduleType);
+        const uint32_t link = gmsl.linkIndex;
+        if (link == 0U || link == UINT32_MAX) {
+            continue;
+        }
+        // Output-VC placement must match the deser HSL: keep each link's streams inside ONE 4-VC
+        // extended-VC msb group and <= VC7 (Tegra VI ignores VC>=8). streams_per_link (SPL) is
+        // derived from this module's own sensor count; links_per_group (LPG) = 4/SPL.
+        const uint32_t streams_per_link = static_cast<uint32_t>(gmsl.sensorConfigs.size());
+        const uint32_t links_per_group = (streams_per_link >= 1U && (4U / streams_per_link) >= 1U)
+            ? (4U / streams_per_link)
+            : 1U;
+        const uint32_t voff = (link / links_per_group) * 4U + (link % links_per_group) * streams_per_link;
+        for (auto& sensor_variant : gmsl.sensorConfigs) {
+            std::visit([&](auto& sensor) {
+                sensor.address.i2cAddress = static_cast<uint16_t>(sensor.address.i2cAddress + link * 0x10U);
+                if (sensor.address.virtualI2CAddress.has_value()) {
+                    sensor.address.virtualI2CAddress = static_cast<uint16_t>(
+                        sensor.address.virtualI2CAddress.value() + link * 0x10U);
+                }
+                for (auto& vc : sensor.vcInfoList) {
+                    if (vc.vcIdSrc != UINT32_MAX) {
+                        vc.vcIdSrc += voff;
+                    }
+                    if (vc.vcIdDst != UINT32_MAX) {
+                        vc.vcIdDst += voff;
+                    }
+                }
+            },
+                sensor_variant);
+        }
     }
 }
 
@@ -173,6 +226,9 @@ void D457SIPLCaptureOp::init_nvsipl()
     }
     HSB_LOG_DEBUG("After ApplyMask(0x{:x}): {} module(s)", link_mask_, sipl_config_.modules.size());
 
+    // Multi-camera de-replication -- no-op for the single-link default (see apply_link_offsets()).
+    apply_link_offsets();
+
     sipl_camera_ = nvsipl::INvSIPLCamera::GetInstance();
     if (!sipl_camera_) {
         throw std::runtime_error("Failed to get NvSIPLCamera instance");
@@ -207,6 +263,8 @@ void D457SIPLCaptureOp::init_nvsipl()
             continue;
         }
         const auto& gmsl = std::get<nvsipl::sensorconfig::GmslModule>(module.moduleType);
+        const uint32_t link = gmsl.linkIndex;
+        uint32_t ordinal_in_module = 0;
         for (const auto& sensor_variant : gmsl.sensorConfigs) {
             const auto& sensor = std::get<nvsipl::sensorconfig::GmslCameraSensorConfig>(sensor_variant);
             if (sensor.vcInfoList.empty()) {
@@ -217,11 +275,18 @@ void D457SIPLCaptureOp::init_nvsipl()
             if (status != nvsipl::NVSIPL_STATUS_OK) {
                 throw std::runtime_error("Failed to set NvSIPLCamera pipeline config");
             }
+            const auto& vc = sensor.vcInfoList[0];
             camera_state.sensor_id_ = sensor.id;
-            camera_state.vc_ = sensor.vcInfoList[0];
-            camera_state.output_name_ = fmt::format("{}_{}", module.name, sensor.id);
-            camera_state.stream_ = stream_for_index(camera_index);
+            camera_state.link_ = link;
+            camera_state.vc_ = vc;
+            camera_state.stream_ = stream_for_sensor(total_sensors, ordinal_in_module);
+            camera_state.output_name_ = fmt::format("cam{}_{}", link, camera_state.stream_);
+            HSB_LOG_INFO(
+                "pipeline[{}] link={} stream={} sensor_id={} vc(src={},dst={}) i2c=0x{:x}",
+                camera_index, link, camera_state.stream_, sensor.id, vc.vcIdSrc, vc.vcIdDst,
+                sensor.address.i2cAddress);
             ++camera_index;
+            ++ordinal_in_module;
         }
     }
 
@@ -288,6 +353,7 @@ void D457SIPLCaptureOp::fill_camera_info()
         auto& info = camera_info_[camera_index];
         info.output_name = camera.output_name_;
         info.stream = camera.stream_;
+        info.link = camera.link_;
         info.offset = 0;
         info.width = vc.resolution.width;
         info.height = vc.resolution.height;
@@ -497,7 +563,17 @@ void D457SIPLCaptureOp::compute(holoscan::InputContext& op_input,
         }
         auto status = sipl_camera_->Start();
         if (status != nvsipl::NVSIPL_STATUS_OK) {
-            throw std::runtime_error("Failed to start streaming");
+            // A transient failure on the very first Start() (post-boot NvSci/GPU-context settling
+            // -- a known, rig-documented gotcha, see .triage/HANDOVER-d457-sipl-*.md) is worth one
+            // automatic retry rather than surfacing a hard failure for a condition that clears
+            // itself a moment later.
+            HSB_LOG_WARN("sipl_camera_->Start() failed (status={}); retrying once", static_cast<int>(status));
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            status = sipl_camera_->Start();
+            if (status != nvsipl::NVSIPL_STATUS_OK) {
+                throw std::runtime_error(
+                    fmt::format("Failed to start streaming (status = {}) after retry", static_cast<int>(status)));
+            }
         }
         streaming_ = true;
     }
@@ -510,7 +586,19 @@ void D457SIPLCaptureOp::compute(holoscan::InputContext& op_input,
             auto status = camera_state.buffer_available_->wait_for(buffer_state_lock,
                 std::chrono::microseconds(timeout_.get()));
             if (status == std::cv_status::timeout) {
-                throw std::runtime_error(fmt::format("Failed to get buffer for {}", camera_state.output_name_));
+                if (strict_.get()) {
+                    throw std::runtime_error(fmt::format("Failed to get buffer for {}", camera_state.output_name_));
+                }
+                // Skip the WHOLE tick (every camera, not just the stalled one) rather than emitting
+                // a partial entity -- every convert op downstream subscribes to the same "output"
+                // port and expects its own named tensor to be present every message. Any earlier
+                // cameras in this loop already got fully wrapped into `entity`'s scope; letting it
+                // fall out of scope here still runs their buffer_release_callback (registered by
+                // wrapMemory), so nothing leaks -- this tick's frames for those cameras are just
+                // dropped, not lost track of.
+                HSB_LOG_WARN("Timed out waiting for buffer for {}; skipping this tick",
+                    camera_state.output_name_);
+                return;
             }
         }
         auto buffer = camera_state.buffer_raw_;

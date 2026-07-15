@@ -25,6 +25,7 @@
 import argparse
 import logging
 import os
+import time
 
 import cupy as cp
 import holoscan
@@ -54,6 +55,8 @@ class D457StreamConvertOp(holoscan.core.Operator):
         self._depth_range_mm = depth_range_mm
         self._depth_colormap = depth_colormap
         self._jet = self._make_jet_lut()
+        self._fps_count = 0
+        self._fps_window_start = None
 
     @staticmethod
     def _make_jet_lut():
@@ -98,6 +101,20 @@ class D457StreamConvertOp(holoscan.core.Operator):
             rgba = self._gray_to_rgba(g)
 
         op_output.emit({self._tensor_name: rgba}, "output")
+        self._log_fps()
+
+    def _log_fps(self):
+        # Console fps per tile (not baked into the image -- avoids a CPU roundtrip/custom kernel
+        # just to draw text on a GPU buffer) so a soak run's health is visible without a display.
+        now = time.time()
+        if self._fps_window_start is None:
+            self._fps_window_start = now
+        self._fps_count += 1
+        elapsed = now - self._fps_window_start
+        if elapsed >= 5.0:
+            logging.info("%s: %.1f fps", self._tensor_name, self._fps_count / elapsed)
+            self._fps_count = 0
+            self._fps_window_start = now
 
     def _depth_to_jet_rgba(self, z):
         # Histogram-equalize valid (non-zero) depth across 0..255, then apply the Jet colormap.
@@ -142,16 +159,19 @@ class D457StreamConvertOp(holoscan.core.Operator):
 
 
 class HoloscanApplication(holoscan.core.Application):
-    def __init__(self, camera_config, json_config, stream, headless, fullscreen, frame_limit,
-                 depth_colormap="jet"):
+    def __init__(self, camera_config, json_config, stream, link_mask, headless, fullscreen,
+                 frame_limit, depth_colormap="jet", max_window_width=1920, strict=False):
         super().__init__()
         self._camera_config = camera_config
         self._json_config = json_config
         self._stream = stream
+        self._link_mask = link_mask
         self._headless = headless
         self._fullscreen = fullscreen
         self._frame_limit = frame_limit
         self._depth_colormap = depth_colormap
+        self._max_window_width = max_window_width
+        self._strict = strict
 
     def compose(self):
         if self._frame_limit:
@@ -170,19 +190,31 @@ class HoloscanApplication(holoscan.core.Application):
             camera_config=self._camera_config,
             json_config=self._json_config,
             stream=self._stream,
+            link_mask=self._link_mask,
+            strict=self._strict,
         )
         camera_info = sipl_capture.get_camera_info()
 
-        # Lay the streams out in a grid (1 wide for a single stream, else 2 columns) so 3+ streams
-        # form a compact window instead of one ultra-wide row that scrolls off a VNC viewer.
-        n = len(camera_info)
-        cols = 1 if n == 1 else 2
-        rows = (n + cols - 1) // cols
+        # Group tiles by physical camera (link): one ROW per camera, one COLUMN per stream on that
+        # camera (order of first appearance == query/driver stream ordinal, so depth|rgb|ir lines up
+        # left-to-right). A single-camera config degenerates to one row, matching the old layout.
+        links_in_order = list(dict.fromkeys(info.link for info in camera_info))
+        row_of_link = {link: r for r, link in enumerate(links_in_order)}
+        col_of_output = {}
+        next_col = [0] * len(links_in_order)
+        for info in camera_info:
+            r = row_of_link[info.link]
+            col_of_output[info.output_name] = next_col[r]
+            next_col[r] += 1
+
+        rows = len(links_in_order)
+        cols = max(next_col) if next_col else 1
         cell_w = 1.0 / cols
         cell_h = 1.0 / rows
         specs = []
-        for i, info in enumerate(camera_info):
-            r, c = divmod(i, cols)
+        for info in camera_info:
+            r = row_of_link[info.link]
+            c = col_of_output[info.output_name]
             view = holoscan.operators.HolovizOp.InputSpec.View()
             view.offset_x = c * cell_w
             view.offset_y = r * cell_h
@@ -194,10 +226,18 @@ class HoloscanApplication(holoscan.core.Application):
             spec.views = [view]
             specs.append(spec)
 
-        # Size the window to the grid at native 16:9 per cell (each 1280x720), so nothing is
-        # stretched. (Fullscreen isn't usable over VNC -- GLFW's RANDR mode-set fails.)
-        window_width = cols * max(info.width for info in camera_info)
-        window_height = rows * max(info.height for info in camera_info)
+        # Size the window to the grid at native 16:9 per cell, clamped so an 8-tile grid doesn't
+        # produce an unusably wide window over VNC; Holoviz's per-view width/height above still
+        # scales each tile to fit, so clamping here only affects on-screen size, not layout.
+        max_w = max(info.width for info in camera_info)
+        max_h = max(info.height for info in camera_info)
+        window_width = cols * max_w
+        window_height = rows * max_h
+        if window_width > self._max_window_width:
+            scale = self._max_window_width / window_width
+            window_width = int(window_width * scale)
+            window_height = int(window_height * scale)
+        # (Fullscreen isn't usable over VNC -- GLFW's RANDR mode-set fails.)
         visualizer = holoscan.operators.HolovizOp(
             self,
             name="holoviz",
@@ -237,7 +277,21 @@ def main():
         "--stream",
         default="",
         choices=("", "depth", "rgb", "ir"),
-        help="Stream to select for a single-sensor config (sets D457_STREAM before init)",
+        help="Stream to select for a single-sensor config (sets D457_STREAM before init). "
+             "Ignored (with a warning) when --link-mask enables more than one link.",
+    )
+    parser.add_argument(
+        "--link-mask",
+        default="0x0001",
+        help="GMSL link-enable mask, one nibble per link (hex, e.g. 0x0011 for 2 cams on links "
+             "0+1, 0x1111 for 4 cams on links 0-3). Default 0x0001 = single camera on link 0.",
+    )
+    parser.add_argument(
+        "--max-window-width",
+        type=int,
+        default=1920,
+        help="Clamp the on-screen window to this width (scales the whole grid down; layout is "
+             "unaffected). Useful so an 8-tile grid doesn't produce an unusably wide VNC window.",
     )
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
     parser.add_argument(
@@ -256,6 +310,12 @@ def main():
         help="Depth rendering: histogram-equalized Jet (like the RealSense viewer) or plain grayscale",
     )
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Throw on a per-camera buffer-wait timeout instead of skipping that tick "
+             "(default: skip and keep running -- one stalled stream doesn't kill the whole view)",
+    )
+    parser.add_argument(
         "--log-level", type=int, default=20, help="Logging level to display"
     )
     args = parser.parse_args()
@@ -265,19 +325,38 @@ def main():
         hololink_module.operators.D457SIPLCaptureOp.list_available_configs(args.json_config)
         return
 
+    link_mask = int(args.link_mask, 16)
+    # bin(mask) has one '1' bit per enabled link nibble only when each nibble is exactly 0x1 (the
+    # convention used everywhere in this repo -- 0x0011, 0x1111, etc.), which is all we need here.
+    multi_link = bin(link_mask).count("1") > 1
+
+    stream = args.stream
+    if multi_link and stream:
+        logging.warning(
+            "--stream %s is ignored: --link-mask 0x%x enables more than one link, so streams are "
+            "selected by query ordinal (depth/rgb/ir), not D457_STREAM", stream, link_mask
+        )
+        stream = ""
+
     # Keep the env in sync so the driver selects the requested stream even if --stream is unset but
-    # D457_STREAM is exported by the caller.
-    if args.stream:
-        os.environ["D457_STREAM"] = args.stream
+    # D457_STREAM is exported by the caller. Only meaningful for a single-link config (the driver/op
+    # ignore it otherwise); avoid leaking a caller-exported D457_STREAM into a multi-link run.
+    if stream:
+        os.environ["D457_STREAM"] = stream
+    elif multi_link:
+        os.environ.pop("D457_STREAM", None)
 
     application = HoloscanApplication(
         args.camera_config,
         args.json_config,
-        args.stream,
+        stream,
+        link_mask,
         args.headless,
         args.fullscreen,
         args.frame_limit,
         args.depth_colormap,
+        args.max_window_width,
+        args.strict,
     )
     application.run()
 

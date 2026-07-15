@@ -42,15 +42,16 @@ class D457SIPLCaptureOp : public holoscan::Operator {
 public:
     HOLOSCAN_OPERATOR_FORWARD_ARGS(D457SIPLCaptureOp)
 
-    // Constructor with camera/JSON config + optional stream selection, since these are required by
-    // methods called before holoscan::Parameter parsing.
+    // Constructor with camera/JSON config + optional stream selection + link mask, since these are
+    // required by methods called before holoscan::Parameter parsing.
     template <typename... ArgsT>
     explicit D457SIPLCaptureOp(const std::string& camera_config, const std::string& json_config,
-        const std::string& stream, ArgsT&&... args)
+        const std::string& stream, uint32_t link_mask, ArgsT&&... args)
         : holoscan::Operator(std::forward<ArgsT>(args)...)
         , camera_config_(camera_config)
         , json_config_(json_config)
         , stream_(stream)
+        , link_mask_(link_mask)
     {
     }
 
@@ -62,10 +63,13 @@ public:
         holoscan::ExecutionContext& context) override;
 
     // This structure provides camera details to an application that may be needed for
-    // post-processing. `stream` is the D457 stream this pipeline carries ("depth"|"rgb"|"ir").
+    // post-processing. `stream` is the D457 stream this pipeline carries ("depth"|"rgb"|"ir");
+    // `link` is the GMSL link (physical camera) index this pipeline belongs to -- 0 for a
+    // single-camera config, 0..N-1 for a multi-camera config (see apply_link_offsets()).
     struct CameraInfo {
         std::string output_name;
         std::string stream;
+        uint32_t link;
         uint32_t offset;
         uint32_t width;
         uint32_t height;
@@ -103,6 +107,7 @@ private:
         // R39.2: the SIPL pipeline index / sensor id this pipeline drives, and the resolved
         // per-sensor virtual-channel info (resolution / inputFormat / embeddedTopLines / cfa).
         uint32_t sensor_id_ = 0;
+        uint32_t link_ = 0;
         nvsipl::sensorconfig::CommonSensorConfig::VirtualChannelInfo vc_;
     };
 
@@ -113,7 +118,8 @@ private:
     void allocate_buffers(uint32_t camera_index, nvsipl::INvSIPLClient::ConsumerDesc::OutputType output_type, std::vector<NvSciBufObj>& bufs);
     void free_buffers(std::vector<NvSciBufObj>& bufs);
     void acquire_buffer_thread_func(PerCameraState* camera_state);
-    std::string stream_for_index(uint32_t camera_index) const;
+    std::string stream_for_sensor(uint32_t total_sensors, uint32_t ordinal_in_module) const;
+    void apply_link_offsets();
 
     std::string camera_config_;
     std::string json_config_;
@@ -121,13 +127,20 @@ private:
 
     holoscan::Parameter<uint32_t> capture_queue_depth_;
     holoscan::Parameter<uint32_t> timeout_;
+    // Default (false): a per-camera buffer-wait timeout logs a WARN and skips emitting this tick
+    // (every camera's tensor together, so no convert op downstream ever sees a partial/missing
+    // input) rather than throwing -- one stalled stream no longer kills the whole multi-camera
+    // view. Set true to restore the original fail-fast behavior.
+    holoscan::Parameter<bool> strict_;
 
     std::unique_ptr<nvsipl::INvSIPLCameraQuery> sipl_query_;
     nvsipl::sensorconfig::SensorSystemConfig sipl_config_;
     std::unique_ptr<nvsipl::INvSIPLCamera> sipl_camera_;
 
-    // GMSL deserializer link-enable mask (R39.2 query->ApplyMask). The D457 is a single camera on
-    // link 0, so the default selects link 0; GetSensorSystemConfig otherwise returns all 4 link slots.
+    // GMSL deserializer link-enable mask (R39.2 query->ApplyMask), one nibble per link (e.g. 0x0011
+    // = links 0+1). Defaults to link 0 only (single D457); set via the constructor for multi-camera
+    // configs (see apply_link_offsets() -- the query replicates the module per enabled link with
+    // identical VCs/i2c, so every link beyond 0 needs its pipelines offset before Init()).
     uint32_t link_mask_ = 0x0001;
 
     NvSciBufModule sci_buf_module_;

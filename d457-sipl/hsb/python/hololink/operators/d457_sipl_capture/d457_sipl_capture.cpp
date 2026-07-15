@@ -48,13 +48,16 @@ public:
         const std::string& camera_config,
         const std::string& json_config,
         const std::string& stream,
+        uint32_t link_mask,
         uint32_t capture_queue_depth,
         uint32_t timeout,
+        bool strict,
         const std::string& name = "d457_sipl_capture")
-        : D457SIPLCaptureOp(camera_config, json_config, stream,
+        : D457SIPLCaptureOp(camera_config, json_config, stream, link_mask,
             holoscan::ArgList {
                 holoscan::Arg { "capture_queue_depth", capture_queue_depth },
-                holoscan::Arg { "timeout", timeout } })
+                holoscan::Arg { "timeout", timeout },
+                holoscan::Arg { "strict", strict } })
     {
         add_positional_condition_and_resource_args(this, args);
         name_ = name;
@@ -75,6 +78,7 @@ PYBIND11_MODULE(_d457_sipl_capture, m)
     py::class_<D457SIPLCaptureOp::CameraInfo>(m, "CameraInfo")
         .def_readwrite("output_name", &D457SIPLCaptureOp::CameraInfo::output_name)
         .def_readwrite("stream", &D457SIPLCaptureOp::CameraInfo::stream)
+        .def_readwrite("link", &D457SIPLCaptureOp::CameraInfo::link)
         .def_readwrite("offset", &D457SIPLCaptureOp::CameraInfo::offset)
         .def_readwrite("width", &D457SIPLCaptureOp::CameraInfo::width)
         .def_readwrite("height", &D457SIPLCaptureOp::CameraInfo::height)
@@ -90,13 +94,17 @@ PYBIND11_MODULE(_d457_sipl_capture, m)
                  const std::string&,
                  uint32_t,
                  uint32_t,
+                 uint32_t,
+                 bool,
                  const std::string&>(),
             "fragment"_a,
             "camera_config"_a = "",
             "json_config"_a = "",
             "stream"_a = "",
+            "link_mask"_a = 0x0001u,
             "capture_queue_depth"_a = 4u,
             "timeout"_a = 1000000u,
+            "strict"_a = false,
             "name"_a = "d457_sipl_capture"s)
         .def_static("list_available_configs", &D457SIPLCaptureOp::list_available_configs,
             "json_config"_a = ""s)
