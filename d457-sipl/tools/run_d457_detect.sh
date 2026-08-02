@@ -46,7 +46,6 @@ echo "[3/3] launching PeopleNet detection ('$S') on ${VNC_DISPLAY} ... (Ctrl-C t
 cd /home/mic-742/holoscan-sensor-bridge
 cat > /home/mic-742/_d457_play.sh <<EOF
 cd /home/mic-742/holoscan-sensor-bridge
-export LD_LIBRARY_PATH=/home/mic-742/sipl_libs:\$LD_LIBRARY_PATH
 python3 examples/d457_tao_peoplenet.py --camera-config D457_Camera --stream $S $EXTRA
 EOF
 chmod +x /home/mic-742/_d457_play.sh

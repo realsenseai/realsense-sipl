@@ -119,7 +119,9 @@ PLAY_SCRIPT="$RIG_HSB/_d457_play_stage${STAGE}.sh"
     # comment for the full story. Without this the player silently runs a stale compiled operator.
     echo "cp build/python/lib/operators/d457_sipl_capture/_d457_sipl_capture.cpython-312-aarch64-linux-gnu.so \\"
     echo "   /usr/local/lib/python3.12/dist-packages/hololink/operators/d457_sipl_capture/"
-    echo "export LD_LIBRARY_PATH=/home/$RIG_USER/sipl_libs\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+    # (No LD_LIBRARY_PATH=~/sipl_libs any more: the lanes=2 libnvsipl binary patch is retired now
+    # that the deser drives 4 lanes -- csi-ab's native 4 Tegra lanes are what we want. See
+    # sdk-patches/restore_libnvsipl_stock.sh.)
     echo "export D457_WIDTH=$WIDTH D457_HEIGHT=$HEIGHT"
     printf 'python3 examples/d457_sipl_player.py'
     for a in "${PLAYER_ARGS[@]}"; do printf ' %q' "$a"; done

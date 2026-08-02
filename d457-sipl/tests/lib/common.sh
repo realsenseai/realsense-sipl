@@ -10,11 +10,11 @@
 #   stream at its canonical VC. gen_query + D457_STREAMS are always built from the same stream list.
 #
 # Prereqs on the rig: booted into the `sipl-d457` extlinux label; the D457 SIPL drivers/patches
-# installed in /usr/lib/nvsipl_drv/; patched libnvsipl in /home/mic-742/sipl_libs (lanes=2).
+# installed in /usr/lib/nvsipl_drv/. The stock system libnvsipl.so is used -- the old lanes=2
+# binary patch (~/sipl_libs on LD_LIBRARY_PATH) is retired now that the deser drives 4 lanes.
 
 set -u
 
-SIPL_LIBS=/home/mic-742/sipl_libs
 NVSIPL_DRV=/usr/lib/nvsipl_drv
 QRY_SRC=/tmp/d457_tests/d457_query_gen.cpp
 QRY_SO=$NVSIPL_DRV/libnvsipl_qry_d457.so
@@ -116,7 +116,7 @@ extern "C" const char* CNvMQuery_GetJsonData(void)
         "serInfo": { "name": "MAX9295", "i2cAddress": "0x40" },
         "linkMode": "LINK_MODE_GMSL2_6GBPS",
         "fsyncMode": "osc_manual",
-        "mipiSettings": { "dphyRate": 594000, "phyMode": "dphy", "lanes": 2 },
+        "mipiSettings": { "dphyRate": ${D457_DPHY_RATE:-2500000}, "phyMode": "dphy", "lanes": 4 },
         "sensorInfo": [$blocks
         ],
         "cryptoConfigName": ""
@@ -129,12 +129,12 @@ extern "C" const char* CNvMQuery_GetJsonData(void)
         "name": "advantech_mic742_thor",
         "description": "Advantech MIC-742 Jetson Thor (D457 GMSL on CSI-A)",
         "boardIdPrefix": "NVIDIA Jetson AGX Thor",
-        "enableMasks": [ "0x0001" ],
+        "enableMasks": [ "${D457_MASK:-0x0001}" ],
         "transportSettings": [
           {
             "name": "transportSettings_d457_AB",
             "type": "GMSL",
-            "description": "GMSL transport for D457 - CSI-AB (2x4 capture descriptor)",
+            "description": "GMSL transport for D457 - CSI-AB (2x4 capture descriptor, 4 Tegra lanes)",
             "csiPort": "csi-ab",
             "deserInfo": { "name": "Max96712GmslDeserializer", "i2cAddress": "0x29" },
             "powerControlInfo": {
@@ -180,7 +180,7 @@ run_streams() {
     power_cycle_ds5
     local dmark="D457TEST_${RANDOM}_${RANDOM}"
     sudo sh -c "echo $dmark > /dev/kmsg" 2>/dev/null
-    sudo env LD_LIBRARY_PATH=$SIPL_LIBS D457_STREAMS="$list" \
+    sudo env D457_STREAMS="$list" \
         timeout $((secs+15)) nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -r "$secs" -s \
         > "$RUN_LOG" 2>&1
     sudo pkill -9 -x nvsipl_camera 2>/dev/null
@@ -229,7 +229,7 @@ run_res() {
     sudo rm -f "$RUN_LOG"
     local dmark="RES_${RANDOM}_${RANDOM}"
     sudo sh -c "echo $dmark > /dev/kmsg" 2>/dev/null
-    sudo env LD_LIBRARY_PATH=$SIPL_LIBS D457_STREAMS="$stream" \
+    sudo env D457_STREAMS="$stream" \
         D457_WIDTH="$w" D457_HEIGHT="$h" D457_FPS="$fps" \
         timeout $((secs+15)) nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -r "$secs" -s \
         > "$RUN_LOG" 2>&1

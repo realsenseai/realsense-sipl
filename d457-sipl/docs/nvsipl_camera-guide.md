@@ -32,8 +32,8 @@ in place. On a fresh boot, verify:
 3. **Driver + query plugin installed** in `/usr/lib/nvsipl_drv/`:
    - `libuddf_d457cameramodule_library.so` (the UDDF module driver)
    - `libnvsipl_qry_d457.so` (the query plugin — registers the `D457_Camera` config name)
-4. **Patched library copies** are in `/home/mic-742/sipl_libs/` (notably `libnvsipl.so` with the
-   2-lane binary patch). These are loaded via `LD_LIBRARY_PATH` so the system libs stay untouched.
+4. **No patched libraries.** The stock system `libnvsipl.so` is used — the old 2-lane binary patch
+   in `/home/mic-742/sipl_libs/` (loaded via `LD_LIBRARY_PATH`) is retired since the 4-lane switch.
 5. **Power-cycle the DS5 first.** The DS5 ASIC wedges between runs; cycle the PoC before every fresh
    capture:
    ```bash
@@ -76,8 +76,7 @@ the single-sensor config.
 ### 3a. Smoke test — does it initialize and lock the link?
 ```bash
 sudo i2cset -y 9 0x28 0x01 0x00 && sleep 3 && sudo i2cset -y 9 0x28 0x01 0x1f && sleep 2
-sudo env LD_LIBRARY_PATH=/home/mic-742/sipl_libs \
-    nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -v 4 -r 5
+sudo nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -v 4 -r 5
 ```
 Expect: `Init()` OK, GMSL link lock, D457 reachable, and a non-zero frame count after Start. The
 Camera HAL logs to **syslog**, not stdout — see §7.
@@ -87,7 +86,7 @@ Frames **must** land on a size-capped tmpfs (see §5). Manual capture of depth:
 ```bash
 sudo mount -t tmpfs -o size=400M tmpfs /tmp/live && mountpoint -q /tmp/live || exit 1
 sudo i2cset -y 9 0x28 0x01 0x00 && sleep 3 && sudo i2cset -y 9 0x28 0x01 0x1f && sleep 2
-sudo env D457_STREAM=depth LD_LIBRARY_PATH=/home/mic-742/sipl_libs \
+sudo env D457_STREAM=depth \
     nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera \
     -f /tmp/live/f -r 20 -W 1000000000
 ```
@@ -106,8 +105,7 @@ ssh -L 8080:localhost:8080 mic-742@<rig>         # then open http://localhost:80
 
 ### 3d. Run from a config JSON instead of the query DB
 ```bash
-sudo env LD_LIBRARY_PATH=/home/mic-742/sipl_libs \
-    nvsipl_camera -t /path/to/d457_gmsl.json -R -0 -1 -2 -r 10 -v 3
+sudo nvsipl_camera -t /path/to/d457_gmsl.json -R -0 -1 -2 -r 10 -v 3
 ```
 
 ---
@@ -199,7 +197,7 @@ sudo pkill -9 -x nvsipl_camera        # -x = exact name match (NOT -f)
 # Standard single-stream capture (depth) to a safe tmpfs, 20 s:
 sudo mount -t tmpfs -o size=400M tmpfs /tmp/live && mountpoint -q /tmp/live || exit 1
 sudo i2cset -y 9 0x28 0x01 0x00 && sleep 3 && sudo i2cset -y 9 0x28 0x01 0x1f && sleep 2
-sudo env D457_STREAM=depth LD_LIBRARY_PATH=/home/mic-742/sipl_libs \
+sudo env D457_STREAM=depth \
     nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -f /tmp/live/f -r 20 -W 1000000000
 
 # Stop:
@@ -216,7 +214,7 @@ dmesg -w                                # CSI/VI (kernel)
 | Stream select | `D457_STREAM=depth\|rgb\|ir` (env, default depth) |
 | Link mask | `-m 0x0001` (link 0) |
 | Frame format | RAW16, 1280×720, 1,843,200 B/frame |
-| Patched libs | `LD_LIBRARY_PATH=/home/mic-742/sipl_libs` |
+| Patched libs | none (stock `libnvsipl.so`; 4 Tegra lanes @ 1100 Mbps) |
 | DS5 power-cycle | `i2cset -y 9 0x28 0x01 0x00 / …0x1f` |
 | Device node | `/dev/cdi-mgr.9.a` (sipl-d457 boot label) |
 | Stop | `pkill -9 -x nvsipl_camera` |

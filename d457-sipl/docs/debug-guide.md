@@ -29,7 +29,9 @@ Four artifacts make up the D457 path:
 | Camera-module driver (D457 sensor/module + **MAX9295 serializer HSL**) | `uddf/cdd_d457/` + `uddf/drivers/serializers/MAX9295/` | `libuddf_d457cameramodule_library.so` |
 | **MAX96712 deserializer** (HSL pixel-map / PHY) | `uddf/drivers/deserializers/MAX96712,MAX967XX/` | `libnvuddf_max96712_library.so` |
 | Query plugin (camera-config JSON) | `query/d457_query.cpp` | `libnvsipl_qry_d457.so` |
-| `libnvsipl` lanes=2 binary patch | stock `libnvsipl.so` (apt `nvidia-l4t-camera`) | `~/sipl_libs/libnvsipl.so` |
+
+(There is no longer a `libnvsipl` binary patch — the old lanes=2 patch was retired with the move to
+4 MIPI lanes; the stock system `libnvsipl.so` is used as-is.)
 
 **1. Sync the repo sources into the SDK tree** (the rig builds from `$SIPL`, not the repo):
 ```bash
@@ -70,11 +72,11 @@ sudo cp $SIPL/build/uddf/libraries/deserMAX96712/libnvuddf_max96712_library.so /
 sudo cp /tmp/libnvsipl_qry_d457.so                                           /usr/lib/nvsipl_drv/
 ```
 
-**2. The lanes=2 `libnvsipl` patch** lives in `~/sipl_libs/` and is loaded via `LD_LIBRARY_PATH` at
-run time — the **system** lib (`/usr/lib/aarch64-linux-gnu/nvidia/libnvsipl.so`) stays untouched:
-```bash
-bash d457-sipl/sdk-patches/patch_libnvsipl_lanes2.sh   # patches a COPY -> ~/sipl_libs/libnvsipl.so
-```
+**2. No `libnvsipl` patch.** The stock system lib is used. Historically a COPY in `~/sipl_libs/` was
+binary-patched to force Tegra lanes=2 and loaded via `LD_LIBRARY_PATH`; that is retired — the deser
+now drives 4 lanes @ 1100 Mbps, so `csiPort: "csi-ab"`'s native 4 lanes are correct. If a stale
+patched copy is still on the rig, clear it with
+`bash d457-sipl/sdk-patches/restore_libnvsipl_stock.sh` and drop `LD_LIBRARY_PATH` from run lines.
 
 **3. Boot the SIPL label.** SIPL uses the non-default `sipl-d457` extlinux label (cdi-mgr overlay →
 `/dev/cdi-mgr.9.a`); the DEFAULT `d4xx` label is the V4L2 fallback. Switch by editing `DEFAULT` in
@@ -87,8 +89,7 @@ ls /dev/cdi-mgr.9.a                              # present => currently booted i
 **4. Run** (power-cycle the DS5 first; full flag reference in the `nvsipl_camera` guide):
 ```bash
 sudo i2cset -y 9 0x28 0x01 0x00; sleep 3; sudo i2cset -y 9 0x28 0x01 0x1f   # DS5 PoC power-cycle
-sudo env LD_LIBRARY_PATH=/home/mic-742/sipl_libs \
-     nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -r 15 -s
+sudo nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -r 15 -s
 ```
 Pick the stream set with `D457_STREAMS` (e.g. `D457_STREAMS=rgb,ir`) + a matching query; the
 `d457-sipl/tests/` suite automates build-query → run → assert for each combination.
@@ -171,7 +172,7 @@ Key lines and what they mean:
 | `FE syncpt timeout` / `frame end` timeout | SOF seen but no Frame-End | Short/truncated frame — resolution or lane-rate mismatch |
 | `corr_err: discarding frame` | VI correlation/validation error | DT/VC mismatch or embedded-line mismatch |
 | `pixel short line` / `PIX_SHORT` | fewer pixels/line than configured | width/stride mismatch, or RGB ISP stalling mid-stream |
-| `nvcsi … err`, `t*-nvcsi … status` | NVCSI D-PHY / lane error | lane count or D-PHY rate mismatch (the `594000` / lanes=2 set) |
+| `nvcsi … err`, `t*-nvcsi … status` | NVCSI D-PHY / lane error | lane count or D-PHY rate mismatch (the `1100000` / lanes=4 set) |
 
 A flood of syncpt timeouts with **nothing** in the RTCPU trace = data isn't even reaching the SoC
 (look at SerDes lock, layer 6). Timeouts **with** `CHANSEL_*` events in the trace = data arrives but
@@ -242,7 +243,7 @@ to keep open during bring-up — most D457 SIPL failures land on one of these:
 | `CHANSEL_FAULT` / `FAULT_FE` | fault during the frame, forced frame-end | upstream stream dropped mid-frame (link glitch, ISP stall) | SerDes lock (§6); RGB-stall gotcha |
 | `CSIMUX_FRAME` error bits | CSI mux frame error (e.g. spurious/missing) | link instability / wrong lane mapping | NVCSI lanes, SerDes |
 | `CSIMUX_STREAM` (FIFO overflow / spurious) | CSI stream FIFO overflow | rate too high for the configured lanes | match DS5 rate ↔ deser ↔ query |
-| `PHY_INTR` / NVCSI PHY error | D-PHY lane / deskew / CRC error | lane count or D-PHY rate mismatch | the `lanes=2` / `594000` matched set |
+| `PHY_INTR` / NVCSI PHY error | D-PHY lane / deskew / CRC error | lane count or D-PHY rate mismatch | the `lanes=4` / `1100000` matched set |
 | `ATOMP_*` (packet overflow / FE) | memory-write (output) side error | buffer/stride config | usually downstream of a DT/size mismatch above |
 
 **No `CSIMUX_FRAME` events at all** ⇒ no data reached the CSI mux ⇒ stop looking at VI; the problem

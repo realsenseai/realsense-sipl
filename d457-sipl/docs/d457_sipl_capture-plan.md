@@ -187,8 +187,8 @@ HSB builds on the Thor rig (or its container) with `HOLOLINK_BUILD_SIPL=ON`; the
 
 ## Rig validation (`fw-advantech-thor-1`)
 Prereqs (`nvsipl_camera-guide.md` §1): `sipl-d457` extlinux label (`/dev/cdi-mgr.9.a`, `d4xx`
-unloaded), driver+query in `/usr/lib/nvsipl_drv/`, patched libs in `/home/mic-742/sipl_libs/`. Carry
-`LD_LIBRARY_PATH=/home/mic-742/sipl_libs` into every run. **Power-cycle the DS5 before each run**
+unloaded), driver+query in `/usr/lib/nvsipl_drv/`. No `LD_LIBRARY_PATH` override is needed — the
+stock `libnvsipl.so` is used since the 4-lane switch. **Power-cycle the DS5 before each run**
 (`i2cset -y 9 0x28 0x01 0x00 / …0x1f`). Never redirect output to disk; don't poll DS5 I2C while RGB
 streams.
 
@@ -197,7 +197,7 @@ streams.
 2. **Config visibility** — `d457_sipl_player.py --list-configs` lists `D457_Camera` (query plugin loads
    in the Holoscan process).
 3. **Depth smoke (headless, bounded)** — power-cycle, then
-   `sudo env LD_LIBRARY_PATH=/home/mic-742/sipl_libs D457_STREAM=depth python3 d457_sipl_player.py
+   `sudo env D457_STREAM=depth python3 d457_sipl_player.py
    --camera-config D457_Camera --stream depth --headless --frame-limit 100`. Expect: init OK, GMSL
    lock, **exactly one** pipeline up, ~30 fps, no format-rejection throw. Watch
    `journalctl -f | grep CameraHAL` and `dmesg -w`.

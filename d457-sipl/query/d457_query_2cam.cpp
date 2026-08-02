@@ -42,7 +42,7 @@ extern "C" const char* CNvMQuery_GetJsonData(void)
         "[ { \"cameraConfigs\":[ { \"name\":\"D457_Camera\",\"moduleDriverName\":\"D457\",\"type\":\"GMSL\","
         "\"description\":\"2x D457 depth+rgb+ir\",\"serInfo\":{\"name\":\"MAX9295\",\"i2cAddress\":\"0x40\"},"
         "\"linkMode\":\"LINK_MODE_GMSL2_6GBPS\",\"fsyncMode\":\"osc_manual\","
-        "\"mipiSettings\":{\"dphyRate\":594000,\"phyMode\":\"dphy\",\"lanes\":2},"
+        "\"mipiSettings\":{\"dphyRate\":2500000,\"phyMode\":\"dphy\",\"lanes\":4},"
         "\"sensorInfo\":[" + sens + "],\"cryptoConfigName\":\"\" } ] },"
         "{ \"platformTransportSettings\":[ { \"name\":\"advantech_mic742_thor\","
         "\"description\":\"Advantech MIC-742 Thor D457 GMSL CSI-A\",\"boardIdPrefix\":\"NVIDIA Jetson AGX Thor\","

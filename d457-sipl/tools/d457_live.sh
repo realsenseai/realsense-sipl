@@ -40,7 +40,7 @@ echo ">> starting capture (stream=$VIEW, runfor=${RUNFOR}s)"
 # -r <secs> disables the interactive runtime menu and runs continuously (without it, the
 # backgrounded app gets stdin EOF and tears down after a few hundred frames -> frozen, 0 fps).
 # -W <large> keeps WRITING every frame (default writeFrames count would stop the file dump early).
-env D457_STREAM="$VIEW" LD_LIBRARY_PATH=/home/mic-742/sipl_libs \
+env D457_STREAM="$VIEW" \
     nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -f "$DIR/f" \
     -r "$RUNFOR" -W 1000000000 >/dev/null 2>&1 &
 sleep 4

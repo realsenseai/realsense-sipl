@@ -2,9 +2,9 @@
 """
 patch_max96712_d457.py — patch the stock NVIDIA SIPL MAX96712 deserializer driver so its
 MIPI CSI-2 OUTPUT to the Thor matches the WORKING d4xx V4L2 path for the RealSense D457:
-a 2-lane output on PHY1 (port A master) in 2x4 port mode.
+a 4-lane output on PHY0/1 (port A, PHY1 master) in 2x4 port mode @ 1100 Mbps/lane.
 
-For simultaneous depth + RGB, the SAME 2-lane PHY1 carries TWO CSI virtual channels (depth VC0,
+For simultaneous depth + RGB, the SAME 4-lane port A carries TWO CSI virtual channels (depth VC0,
 RGB VC1) — the PHY/lane block below is unchanged. Following d4xx, each VC gets its OWN deserializer
 pipe (depth pipe 0, RGB pipe 1) with its own pixel-map block and framing; both DSTs are RAW16
 (DT 0x2E) so Tegra splits them into two SIPL capture pipelines (see NEW_MAP). An earlier single-pipe
@@ -13,19 +13,30 @@ map (both VCs through pipe 0) faulted at the Tegra VI after ~8 frames; pipe-per-
 WHY
   SIPL couples csiPort -> {PHY mode, Tegra lane count}:
     csi-ab -> 2x4 (4 Tegra lanes)   csi-a -> 4x2 (2 Tegra lanes)
-  The D457 (like d4xx) needs the Tegra side at 2 lanes (use csi-a) BUT the deser output must be
-  the d4xx 2x4-port-mode/2-lane/PHY1 config (the board is wired to the PHY1 / port-A 2x4 pads).
-  So we keep csi-a (for Tegra=2 lanes + PHY1 via desTxPort=1) and rewrite the '4x2' PHY sequence
-  to emit d4xx's EXACT register values, and relax the 4x2 PLL-lock check (which demanded all 4
-  PHYs locked, 0xF0) to the 2x4 pattern (0x60) since only PHY0/1 are enabled.
+  Since the 4-lane switch the D457 uses csi-ab and takes the 4 Tegra lanes as-is (the old
+  patch_libnvsipl_lanes2.sh binary patch that forced 2 is retired). The deser output is the
+  d4xx 2x4-port-mode config on PHY0/1 (the board is wired to the port-A 2x4 pads), now 4 lanes
+  @ 1100 Mbps. The 4x2 PLL-lock check (which demanded all 4 PHYs locked, 0xF0) is still relaxed
+  to the PHY1 bit since only PHY0/1 are enabled.
 
-GROUND TRUTH (captured live from d4xx streaming depth on this rig + d4xx max96712 source):
+  ⚠ This file is the LEGACY single-camera generator. The live multi-camera source of truth is
+  sdk-patches/multicam-sources/MAX967XXHsl.py (function seq_set_mipi_d_phy, the csi-ab/2x4 path);
+  keep the two in sync.
+
+GROUND TRUTH (d4xx max96712_init_settings() with lane_cnt=4 -- realsense_mipi_platform_driver
+commit 758440a "RSDSO-21762 Align all 96712 overlays to 4 MIPI lanes"; the 2-lane values that
+this config replaced are in parentheses):
   0x08A0=0x24  PHY enable + force_clk0 (port A clock)
-  0x094A=0x50  PHYA TX10: 2 MIPI lanes + master/ext-VC  (4-lane would be 0x60)
+  0x094A=0xD0  PHYA TX10: (lane_cnt-1)<<6 | ext-VC<<4 -> 4 MIPI lanes    (2-lane was 0x50)
   0x08A3=0xE4  lane->pad mapping (lower phys to lower lanes)
-  0x0418=0x39  port-A lane rate = 2500 Mbps (0x20 base + 0x19)
+  0x0418=0x39  port-A: PHY1_SW_OVRR (1<<5) | rate 0x19 = 2500 Mbps       (d4xx 4-lane uses 0x2B/1100)
   0x08A2=0x34  2x4 port mode: enable PHY0/1, disable PHY2/3
   0x092D=0x55  pipe->PHY1 (set via desTxPort=1 / pipeline mapping; ours reads 0x15, bits[1:0]=PHY1)
+
+  The matching Tegra side is the query's mipiSettings {dphyRate: 2500000, lanes: 4}. Deser rate and
+  NVCSI rate MUST agree -- a mismatch truncates every frame (FINDINGS §5o). d4xx pairs 4 lanes with
+  1100 Mbps (serdes_pix_clk_hz=275000000 x 16 bpp / 4 lanes); we run 2500 (the MAX96712 D-PHY max)
+  after an on-rig sweep found 1100/1500/2000/2500 all clean -- see the 2026-08-02 FINDINGS entry.
 
 USAGE: python3 patch_max96712_d457.py [SIPL_ROOT]
 """
@@ -39,15 +50,15 @@ CPP_967XX = os.path.join(SIPL_ROOT, "uddf/drivers/deserializers/MAX967XX/MAX967X
 
 NEW_4X2_BODY = '''    def seq_set_mipi_d_phy_4x2(self):
         with Sequence('set_mipi_d_phy_4x2'):
-            annotate('D457: d4xx-exact 2x4-port-mode, 2-lane on PHY1 (port A master)')
+            annotate('D457: d4xx-exact 2x4-port-mode, 4-lane on PHY0/1 (port A) @ 1100 Mbps')
             with self.max967xx:
                 write(0x08A0, 0x24) # PHY enable + force_clk0 (port A clock)
-                write(0x094A, 0x50) # PHYA TX10: 2 MIPI lanes + master/ext-VC
+                write(0x094A, 0xD0) # PHYA TX10: 4 MIPI lanes + master/ext-VC (2-lane was 0x50)
                 write(0x08A3, 0xE4) # lane->pad mapping (lower phys to lower lanes)
                 write(0x0973, 0x10) # ALT2_MEM_MAP8 (d4xx)
                 write(0x1C00, 0xF4) # DPLL (PHY0 clock) reset
                 write(0x1D00, 0xF4) # DPLL (PHY1) reset for rate change
-                write(0x0418, 0x39) # port A lane rate code (0x20 + 0x19); actual link ~594 Mbps
+                write(0x0418, 0x39) # port A lane rate: 0x20 (PHY1 ovrr) | 0x19 = 2500 Mbps (max)
                 write(0x1C00, 0xF5) # DPLL (PHY0 clock) fix
                 write(0x1D00, 0xF5) # DPLL (PHY1) fix frequency
                 write(0x08A2, 0x34) # 2x4 port mode: PHY0/1 on, PHY2/3 off

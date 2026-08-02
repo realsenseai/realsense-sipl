@@ -13,7 +13,7 @@
  *                                          "transportSettings": [ <transport> ] } ] }
  * Boards are matched to the running unit by `boardIdPrefix` (vs GetBoardModel, which on this
  * rig = "NVIDIA Jetson AGX Thor Developer Kit"). Values resolved from the live d4xx DT:
- * MAX9295@0x40, MAX96712@0x29, sensor(depth)@0x1a, CSI-A, i2c bus 9, 2 lanes / 16bpp.
+ * MAX9295@0x40, MAX96712@0x29, sensor(depth)@0x1a, CSI-A, i2c bus 9, 4 lanes / 16bpp.
  * moduleDriverName "D457" matches DriverInfo.name in D457Library.cpp.
  *
  * ── SIMULTANEOUS depth + RGB (two sensors / two pipelines) ──
@@ -74,7 +74,7 @@ extern "C" const char* CNvMQuery_GetJsonData(void)
         "serInfo": { "name": "MAX9295", "i2cAddress": "0x40" },
         "linkMode": "LINK_MODE_GMSL2_6GBPS",
         "fsyncMode": "osc_manual",
-        "mipiSettings": { "dphyRate": 594000, "phyMode": "dphy", "lanes": 2 },
+        "mipiSettings": { "dphyRate": 2500000, "phyMode": "dphy", "lanes": 4 },
         "sensorInfo": [
           {
             "name": "D457",
@@ -138,7 +138,7 @@ extern "C" const char* CNvMQuery_GetJsonData(void)
           {
             "name": "transportSettings_d457_AB",
             "type": "GMSL",
-            "description": "GMSL transport for D457 - CSI-AB (2x4 capture descriptor). Tegra lane count is forced to 2 by the libnvsipl.so BuildSensorProperty patch (see FINDINGS top); deser PHY is patched to d4xx 2x4-on-PHY1/2-lane.",
+            "description": "GMSL transport for D457 - CSI-AB (2x4 capture descriptor, 4 Tegra lanes). csi-ab natively yields 4 lanes via libnvsipl BuildSensorProperty - the old lanes=2 binary patch is GONE; deser PHY is 2x4 on PHY0/1, 4 lanes @ 2500 Mbps (max validated; d4xx uses 1100).",
             "csiPort": "csi-ab",
             "deserInfo": { "name": "Max96712GmslDeserializer", "i2cAddress": "0x29" },
             "powerControlInfo": {

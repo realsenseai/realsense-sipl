@@ -676,16 +676,41 @@ class MAX967XX(ABC):
                 writeFromMemory(0x041E, self.mipi_phy_datarate_config_block.reg_041E_value)
 
     def seq_set_mipi_d_phy(self):
+        # D457 deser->Tegra PHY: 2x4 port mode on PHY0+PHY1 (port A), 4 MIPI lanes.
+        # 4-lane mirrors the d4xx kernel driver's max96712_init_settings() with lane_cnt=4
+        # (realsense_mipi_platform_driver 758440a "Align all 96712 overlays to 4 MIPI lanes"):
+        #     0x094A = (lane_cnt-1)<<6 | 1<<4        -> 4 lanes 0xD0   (2 lanes was 0x50)
+        #     0x0418 = 1<<5 (PHY1_SW_OVRR) | rate/100
+        # d4xx runs the same HYBRID topology: DS5->serializer stays 2-lane (D457_VAL_MIPI_2LANE),
+        # only the deser->Jetson segment widens.
+        #
+        # RATE IS BUILD-TIME TUNABLE: D457_DPHY_RATE_100M = lane rate in units of 100 Mbps
+        # (BACKTOP25 bits[4:0] literally hold rate/100: 0x0B=1100, 0x0F=1500, 0x19=2500 = part max).
+        # Whatever you set here MUST match the query's mipiSettings.dphyRate (kbps) -- they are a
+        # matched set; a mismatch truncates frames (that was the original 2500000-vs-594000 bug,
+        # FINDINGS SS5o). Like D457_MAP_*, this is read when PyHSL compiles, so a change needs the
+        # hslc-cache force (rm hsl_gen/MAX967XXHsl.hslc && touch this file) before `make`.
+        #
+        # DEFAULT = 25 (2500 Mbps/lane), the MAX96712 D-PHY maximum. Rate sweep on-rig 2026-08-02
+        # (10 s depth runs): 1100/1500/2000/2500 ALL clean, 0 drops, 0 faults; 2500 also clean with
+        # depth+rgb+ir together. SIPL's own deser driver refuses to go past 2500 -- ask for 3100 and
+        # MAX967XX.cpp still computes mipiSpeed=25 (0x19) while Tegra gets configured at 3100000, so
+        # >2500 puts the two ends out of agreement. d4xx uses 1100 here (`lane_cnt=4`); set
+        # D457_DPHY_RATE_100M=11 (+ query dphyRate 1100000) to go back to the d4xx-aligned value.
+        # NOTE: MAX967XX.cpp fires setup_initial_deskew + trigger_deskew once dphyRate >= 1500000,
+        # so crossing 1500 changes behaviour, it is not just a bigger number.
+        import os
+        rate100 = int(os.environ.get('D457_DPHY_RATE_100M', '25'))
         with Sequence('set_mipi_d_phy'):
-            annotate('D457 2x4-2lane d4xx-exact')
+            annotate('D457 2x4-4lane d4xx-exact (%d Mbps/lane)' % (rate100 * 100))
             with self.max967xx:
                 write(0x08A0, 0x24)
-                write(0x094A, 0x50)
+                write(0x094A, 0xD0)
                 write(0x08A3, 0xE4)
                 write(0x0973, 0x10)
                 write(0x1C00, 0xF4)
                 write(0x1D00, 0xF4)
-                write(0x0418, 0x39)
+                write(0x0418, 0x20 | rate100)
                 write(0x1C00, 0xF5)
                 write(0x1D00, 0xF5)
                 write(0x08A2, 0x34)

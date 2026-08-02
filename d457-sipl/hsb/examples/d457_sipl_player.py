@@ -18,7 +18,7 @@
 # delivered as RAW16 and converted to RGBA on the GPU for display.
 #
 # Example (single-sensor query installed via tests/lib/common.sh `gen_query depth`):
-#   sudo env LD_LIBRARY_PATH=/home/mic-742/sipl_libs D457_STREAM=depth \
+#   sudo env D457_STREAM=depth \
 #       python3 d457_sipl_player.py --camera-config D457_Camera --stream depth --headless \
 #       --frame-limit 100
 

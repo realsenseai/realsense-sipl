@@ -55,7 +55,6 @@ echo "[3/3] launching Holoscan player ('$STREAM') on ${VNC_DISPLAY} ... (Ctrl-C 
 cd /home/mic-742/holoscan-sensor-bridge
 cat > /home/mic-742/_d457_play.sh <<EOF
 cd /home/mic-742/holoscan-sensor-bridge
-export LD_LIBRARY_PATH=/home/mic-742/sipl_libs:\$LD_LIBRARY_PATH
 python3 examples/d457_sipl_player.py --camera-config D457_Camera --stream $STREAM $EXTRA
 EOF
 chmod +x /home/mic-742/_d457_play.sh

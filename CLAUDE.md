@@ -39,8 +39,17 @@ Default branch: `main`. Active branch: `d457-sipl-gmsl`.
   (Y8I)**. Each delivered to Tegra as **RAW16 (DT 0x2E) on VC0**, selected at runtime by the
   **`D457_STREAM=depth|rgb|ir`** env var (default depth). See FINDINGS top: two "SOLVED" blocks
   (depth 2026-06-23, RGB+IR 2026-06-24).
-- Remaining: simultaneous multi-stream (multi-VC), the consumer/viewer app, run-to-run stability
-  (DS5 wedges between runs — PoC power-cycle needed), soak, multi-link.
+- ✅ **Stage 3 @ 720p30: 8 streams (4 cams × depth+RGB) all at 30.00 fps, 0 drops, 0 faults**
+  (2026-08-02, on 4 lanes @ 2500 Mbps — `tools/stage3_720p.sh`). Closed the last multilink DoD item;
+  the old config managed only ~11 fps here and had to run at VGA.
+- ✅ **Stage 2 @ 720p30: 6/6 at 29.99 fps** (`tools/stage2_720p.sh`) — frame counts identical to the
+  July 2-lane run, i.e. Stage 2 was never bandwidth-limited. ⚠ The long-repeated "2 lanes = 1.19 Gbps"
+  claim is **wrong** (the 2-lane deser PHY ran at 2500 Mbps/lane; 594000 was only the Tegra CIL
+  setting, and the two disagreed). See the CORRECTION block in FINDINGS before doing capacity math.
+- ✅ **5-min soak at Stage 3 / 720p30: 73,595 frames, 0 drops, 0 discontinuities, 0 faults**
+  (~3.47 Gbps sustained). Flat throughout — `tools/stage3_720p.sh 300`.
+- Remaining: Stage 2 5-min soak, run-to-run stability (DS5 wedges between runs — PoC power-cycle
+  needed).
 
 ### Hard-won facts (don't relearn these)
 - **DS5 register offset AND data word are byte-swapped** by the SIPL HSL I2C layer — `swap16()` on
@@ -55,6 +64,17 @@ Default branch: `main`. Active branch: `d457-sipl-gmsl`.
   the serializer-forwarded reference clock to output pixels (depth/IR OV9282 are self-clocked).
 - **MAX9295 pipe DT-filters** — pipe-0 needs dt2=0x1E (`0x0315=0xDE`) to forward RGB alongside
   depth/IR's 0x2E; else deser RX never locks (`0x01DC` bit0=0).
+- **Deser→Tegra is 4 MIPI lanes @ 2500 Mbps** (rig-validated 2026-08-02; RCE reports `CIL A … Lanes: 4`
+  / `Physical rate: 2500000 Kbps`). 4-lane follows the d4xx `lane_cnt=4` hybrid config
+  (`realsense_mipi_platform_driver` 758440a), which pairs it with 1100 Mbps; an on-rig sweep found
+  **1100/1500/2000/2500 all clean** so we take 2500, the MAX96712 D-PHY max. The lane count/rate is a
+  **matched set** — deser HSL `0x094A=0xD0` + `0x0418=0x20|rate/100`, query
+  `mipiSettings {lanes: 4, dphyRate: <rate>000}`; a mismatch truncates every frame. Rate is one
+  build-time env: `D457_DPHY_RATE_100M` (+ the query's `dphyRate`); **>2500 is not usable** — SIPL's
+  deser driver silently clamps to 0x19 while Tegra takes the higher number, so the ends disagree.
+  DS5→serializer stays **2-lane** (d4xx's hybrid topology). The old `libnvsipl.so` lanes=2 binary
+  patch and its `LD_LIBRARY_PATH=~/sipl_libs` launch contract are **retired** — `csiPort: "csi-ab"`
+  natively yields the 4 lanes we now want.
 - **Never redirect `nvsipl_camera` output to a file** (50 MB/s error spew on 0 frames filled the disk);
   use `pkill -x nvsipl_camera` (not `-f`). **Do not poll the DS5 over i2c while RGB streams** (disrupts it).
 - The **stock MAX9295 SDK driver is HAWK-only** (`numSensors==2`); `sdk-patches/patch_max9295_d457.py`

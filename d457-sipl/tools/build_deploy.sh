@@ -102,5 +102,5 @@ say "installed (timestamps):"
 ls -la "$NVSIPL_DRV"/libuddf_d457cameramodule_library.so \
        "$NVSIPL_DRV"/libnvuddf_max96712_library.so \
        "$NVSIPL_DRV"/libnvsipl_qry_d457.so 2>/dev/null | sed 's/^/   /'
-say "done. Run:  sudo env LD_LIBRARY_PATH=/home/mic-742/sipl_libs nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -r 15 -s"
+say "done. Run:  sudo nvsipl_camera -H -R -0 -1 -2 -m 0x0001 -c D457_Camera -r 15 -s"
 say "(power-cycle the DS5 first if not using SIPL-owned PoC; pick streams with D457_STREAMS=depth,rgb,ir)"
