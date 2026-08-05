@@ -101,13 +101,30 @@ def seq_stop():
             write(0x0000, 0x0002) # stop streaming RGB
             write(0x0000, 0x0202) # stop streaming DEPTH
 
+# Per-stream stops. The combined 'stop' above decrements the FW start-count of BOTH
+# streams, so using it after starting only one underflows the other counter and the FW
+# then refuses every later profile update (start count wraps to 0xFFFFFFFD). Stopping
+# only the stream that was started keeps the counts balanced, which is what lets a
+# later run switch between depth and RGB without a camera reboot.
+def seq_stop_rgb():
+    with Sequence('stop_rgb'):
+        annotate('stop_rgb')
+        with d555:
+            write(0x0000, 0x0002) # stop streaming RGB
+
+def seq_stop_depth():
+    with Sequence('stop_depth'):
+        annotate('stop_depth')
+        with d555:
+            write(0x0000, 0x0202) # stop streaming DEPTH
+
 # RGB sequences for all modes
 def seq_rgb_m896x504_30fps():
     with Sequence('rgb_m896x504_30fps'):
         annotate('rgb_m896x504_30fps')
         with d555:
-            write(0x0000, 0x0203) # set profile rgb 896x504_30fps (index 8)
-            write(0x0000, 0x0201) # start streaming rgb
+            write(0x0000, 0x0003) # set profile RGB 896x504_30fps (index 0)
+            write(0x0000, 0x0001) # start streaming RGB
 
     
 def seq_rgb_m896x504_15fps():
@@ -129,8 +146,8 @@ def seq_rgb_m896x504_60fps():
     with Sequence('rgb_m896x504_60fps'):
         annotate('rgb_m896x504_60fps')
         with d555:
-            write(0x0003, 0x0203) # set profile rgb 896x504_60fps (index 8)
-            write(0x0000, 0x0201) # start streaming rgb
+            write(0x0003, 0x0003) # set profile RGB 896x504_60fps (index 3)
+            write(0x0000, 0x0001) # start streaming RGB
 
 def seq_rgb_m1280x800_30fps():
     with Sequence('rgb_m1280x800_30fps'):
@@ -388,6 +405,8 @@ def main():
     # Control sequences
     seq_start()
     seq_stop()
+    seq_stop_rgb()
+    seq_stop_depth()
 
     ph_logger().info('Success')
 

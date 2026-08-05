@@ -84,8 +84,22 @@ protected:
 
 private:
 
+    /**
+     * @brief Submits the RGB start sequence for the configured mode.
+     *
+     * Called by StartStreaming when D555_STREAM selects the RGB stream.
+     */
+    bool StartRgbStreaming(const CameraModuleContext& context);
+
+    /**
+     * @brief Stops only the stream that StartStreaming actually started.
+     */
+    void StopStartedStream(uddf::cdi::IHardwareAccess* hwAccess);
+
     // is the camera currently streaming
     bool m_is_streaming;
+    // which stream StartStreaming started (StreamKind, kept as int to stay out of the header)
+    int m_streaming_kind {};
     uddf::ddi::interfaces::CoEModuleContext::Config m_config{}; // stored copy
 };
 
