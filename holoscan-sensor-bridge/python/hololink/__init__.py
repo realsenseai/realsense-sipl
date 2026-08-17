@@ -1,0 +1,289 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# See README.md for detailed information.
+
+# Import hololink_core FIRST with RTLD_GLOBAL so its symbols are available to _hololink
+# This prevents duplicate copies of hololink_core code in memory
+from . import hololink_core  # noqa: F401
+from . import (
+    emulation,
+    operators,
+    renesas_bajoran_lite_ts1,
+    renesas_bajoran_lite_ts2,
+    sensors,
+)
+from ._hololink import (
+    APB_RAM,
+    BL_I2C_BUS,
+    CAM_I2C_BUS,
+    CLNX_SPI_BUS,
+    CPNX_SPI_BUS,
+    CTRL_EVENT,
+    CTRL_EVT_SW_EVENT,
+    DP_ADDRESS_0,
+    DP_ADDRESS_1,
+    DP_ADDRESS_2,
+    DP_ADDRESS_3,
+    DP_BUFFER_LENGTH,
+    DP_BUFFER_MASK,
+    DP_HOST_IP,
+    DP_HOST_MAC_HIGH,
+    DP_HOST_MAC_LOW,
+    DP_HOST_UDP_PORT,
+    DP_PACKET_SIZE,
+    DP_QP,
+    DP_RKEY,
+    DP_VP_MASK,
+    FPGA_DATE,
+    HOLOLINK_100G_BOARD_ID,
+    HOLOLINK_LITE_BOARD_ID,
+    HOLOLINK_NANO_BOARD_ID,
+    HSB_IP_VERSION,
+    HSB_LOG_LEVEL_DEBUG,
+    HSB_LOG_LEVEL_ERROR,
+    HSB_LOG_LEVEL_INFO,
+    HSB_LOG_LEVEL_INVALID,
+    HSB_LOG_LEVEL_TRACE,
+    HSB_LOG_LEVEL_WARN,
+    I2C_10B_ADDRESS,
+    I2C_BUSY,
+    I2C_CTRL,
+    I2C_DONE,
+    I2C_FSM_ERR,
+    I2C_I2C_ERR,
+    I2C_I2C_NAK,
+    I2C_REG_BUS_EN,
+    I2C_REG_CLK_CNT,
+    I2C_REG_CONTROL,
+    I2C_REG_DATA_BUFFER,
+    I2C_REG_NUM_BYTES,
+    I2C_REG_STATUS,
+    I2C_START,
+    LEOPARD_EAGLE_BOARD_ID,
+    METADATA_SIZE,
+    MICROCHIP_POLARFIRE_BOARD_ID,
+    RD_BLOCK,
+    RD_DWORD,
+    REQUEST_FLAGS_ACK_REQUEST,
+    RESPONSE_INVALID_CMD,
+    RESPONSE_SUCCESS,
+    SPI_CTRL,
+    WR_BLOCK,
+    WR_DWORD,
+    AD9986Config,
+    BasicEnumerationStrategy,
+    BayerFormat,
+    CsiConverter,
+    DataChannel,
+    EnumerationStrategy,
+    Enumerator,
+    Hololink,
+    HsbLogLevel,
+    ImGuiRenderer,
+    Metadata,
+    NvtxTrace,
+    PacketizerProgram,
+    PixelFormat,
+    Sequencer,
+    Synchronizable,
+    Synchronizer,
+    Timeout,
+    TimeoutError,
+    UnsupportedVersion,
+    csi,
+    get_hsb_log_level,
+    get_traditional_i2c,
+    get_traditional_spi,
+    hsb_log_debug,
+    hsb_log_error,
+    hsb_log_info,
+    hsb_log_trace,
+    hsb_log_warn,
+    infiniband_devices,
+    log_timestamp_s,
+    set_hsb_log_level,
+)
+from .hololink_core import (
+    PAGE_SIZE,
+    UDP_PACKET_SIZE,
+    ArpWrapper,
+    Deserializer,
+    Reactor,
+    Serializer,
+    gettid,
+    local_ip_and_mac,
+    local_ip_and_mac_from_socket,
+    local_mac,
+    round_up,
+)
+
+__all__ = [
+    "AD9986Config",
+    "APB_RAM",
+    "ArpWrapper",
+    "BL_I2C_BUS",
+    "BasicEnumerationStrategy",
+    "BayerFormat",
+    "CAM_I2C_BUS",
+    "CLNX_SPI_BUS",
+    "CTRL_EVENT",
+    "CTRL_EVT_SW_EVENT",
+    "CPNX_SPI_BUS",
+    "CsiConverter",
+    "DP_ADDRESS_0",
+    "DP_ADDRESS_1",
+    "DP_ADDRESS_2",
+    "DP_ADDRESS_3",
+    "DP_BUFFER_LENGTH",
+    "DP_BUFFER_MASK",
+    "DP_HOST_IP",
+    "DP_HOST_MAC_HIGH",
+    "DP_HOST_MAC_LOW",
+    "DP_HOST_UDP_PORT",
+    "DP_PACKET_SIZE",
+    "DP_QP",
+    "DP_RKEY",
+    "DP_VP_MASK",
+    "DataChannel",
+    "Deserializer",
+    "emulation",
+    "EnumerationStrategy",
+    "Enumerator",
+    "FPGA_DATE",
+    "HOLOLINK_100G_BOARD_ID",
+    "HOLOLINK_LITE_BOARD_ID",
+    "HOLOLINK_NANO_BOARD_ID",
+    "HSB_IP_VERSION",
+    "HSB_LOG_LEVEL_TRACE",
+    "HSB_LOG_LEVEL_DEBUG",
+    "HSB_LOG_LEVEL_INFO",
+    "HSB_LOG_LEVEL_WARN",
+    "HSB_LOG_LEVEL_ERROR",
+    "HSB_LOG_LEVEL_INVALID",
+    "HsbLogLevel",
+    "Hololink",
+    "I2C_10B_ADDRESS",
+    "I2C_CTRL",
+    "I2C_BUSY",
+    "I2C_CORE_EN",
+    "I2C_DONE",
+    "I2C_FSM_ERR",
+    "I2C_I2C_ERR",
+    "I2C_I2C_NAK",
+    "I2C_REG_BUS_EN",
+    "I2C_REG_CLK_CNT",
+    "I2C_REG_CONTROL",
+    "I2C_REG_DATA_BUFFER",
+    "I2C_REG_NUM_BYTES",
+    "I2C_REG_STATUS",
+    "I2C_START",
+    "ImGuiRenderer",
+    "LEOPARD_EAGLE_BOARD_ID",
+    "METADATA_SIZE",
+    "MICROCHIP_POLARFIRE_BOARD_ID",
+    "Metadata",
+    "NvtxTrace",
+    "PAGE_SIZE",
+    "PacketizerProgram",
+    "PixelFormat",
+    "RD_BLOCK",
+    "RD_DWORD",
+    "Reactor",
+    "REQUEST_FLAGS_ACK_REQUEST",
+    "RESPONSE_INVALID_CMD",
+    "RESPONSE_SUCCESS",
+    "SPI_CTRL",
+    "Sequencer",
+    "Serializer",
+    "Synchronizable",
+    "Synchronizer",
+    "Timeout",
+    "TimeoutError",
+    "UDP_PACKET_SIZE",
+    "UnsupportedVersion",
+    "WR_BLOCK",
+    "WR_DWORD",
+    "core",
+    "csi",
+    "get_hsb_log_level",
+    "get_traditional_i2c",
+    "get_traditional_spi",
+    "hsb_log_trace",
+    "hsb_log_debug",
+    "hsb_log_info",
+    "hsb_log_warn",
+    "hsb_log_error",
+    "gettid",
+    "infiniband_devices",
+    "local_ip_and_mac",
+    "local_ip_and_mac_from_socket",
+    "local_mac",
+    "operators",
+    "renesas_bajoran_lite_ts1",
+    "renesas_bajoran_lite_ts2",
+    "round_up",
+    "sensors",
+    "log_timestamp_s",
+    "set_hsb_log_level",
+]
+
+import logging
+
+trace_level = logging.DEBUG - 5
+trace_name = "TRACE"
+logging.addLevelName(trace_level, trace_name)
+setattr(logging, trace_name, trace_level)
+
+logger = logging.getLogger()
+
+
+class TidFilter(logging.Filter):
+    def filter(self, record):
+        record.tid = gettid()
+        return True
+
+
+logger.addFilter(TidFilter())
+
+
+class LogTimestampFilter(logging.Filter):
+    def filter(self, record):
+        record.log_timestamp_s = log_timestamp_s()
+        return True
+
+
+logger.addFilter(LogTimestampFilter())
+
+
+def log_trace(self, message, *args, **kwargs):
+    if self.isEnabledFor(trace_level):
+        self._log(trace_level, message, *args, **kwargs)
+
+
+setattr(logging.getLoggerClass(), trace_name.lower(), log_trace)
+
+
+def log_trace_to_root(message, *args, **kwargs):
+    logging.log(trace_level, message, *args, **kwargs)
+
+
+setattr(logging, trace_name.lower(), log_trace_to_root)
+
+log_format = "%(levelname)s %(log_timestamp_s).4f %(funcName)s %(filename)s:%(lineno)d tid=0x%(tid)x -- %(message)s"
+
+
+def logging_level(n):
+    logging.basicConfig(format=log_format, level=n)
