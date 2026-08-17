@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+add_library(linux_receiver STATIC
+  linux_receiver.cpp
+  )
+
+add_library(linux_receiver_op STATIC
+  linux_receiver_op.cpp
+  )
+
+set_property(TARGET linux_receiver PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET linux_receiver_op PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+add_library(hololink::operators::linux_receiver ALIAS linux_receiver)
+add_library(hololink::operators::linux_receiver_op ALIAS linux_receiver_op)
+
+target_include_directories(linux_receiver
+  INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    ${ibverbs_INCLUDE_DIRS}
+  )
+
+target_include_directories(linux_receiver_op
+  INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  )
+
+target_link_libraries(linux_receiver
+  PRIVATE
+    hololink::core
+    hololink::operators::base_receiver_op
+    CUDA::cuda_driver
+  )
+
+target_link_libraries(linux_receiver_op
+  PRIVATE
+    hololink::core
+    hololink::operators::base_receiver_op
+    linux_receiver
+    CUDA::cuda_driver
+  )
+
+# Installation of the linux_receiver operator
+set_target_properties(linux_receiver PROPERTIES EXPORT_NAME operators::linux_receiver)
+set_target_properties(linux_receiver_op PROPERTIES EXPORT_NAME operators::linux_receiver_op)
+install(TARGETS
+          linux_receiver
+          linux_receiver_op
+        EXPORT HololinkTargets
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT hololink-operators)
+
+install(FILES
+          ${CMAKE_CURRENT_SOURCE_DIR}/linux_receiver.hpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/linux_receiver_op.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hololink/operators/linux_receiver
+        COMPONENT hololink-operators)

@@ -1,0 +1,4 @@
+*.bit
+*.rpd
+*.yaml
+!manifest.yaml
