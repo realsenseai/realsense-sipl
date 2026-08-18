@@ -1,0 +1,87 @@
+name: lint
+
+# d457-sipl and d555-sipl are aarch64 Jetson targets and cannot be compiled here, so this gates the
+# shell and Python -- which is where most review findings have landed -- plus C++ formatting.
+# The vendored holoscan-sensor-bridge/ tree is upstream NVIDIA code and is excluded throughout.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Lint project shell scripts
+        run: |
+          mapfile -t files < <(git ls-files '*.sh' | grep -v '^holoscan-sensor-bridge/')
+          printf '%s\n' "${files[@]}"
+          # SC2029 (client-side expansion in ssh) is intentional throughout the rig tooling.
+          shellcheck --severity=warning --exclude=SC2029 "${files[@]}"
+
+  shell-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n every script
+        run: |
+          rc=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "FAIL $f"; rc=1; }
+          done < <(git ls-files '*.sh' | grep -v '^holoscan-sensor-bridge/')
+          exit $rc
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Syntax-check every module
+        run: |
+          rc=0
+          while IFS= read -r f; do
+            python -m py_compile "$f" || { echo "FAIL $f"; rc=1; }
+          done < <(git ls-files '*.py' | grep -v '^holoscan-sensor-bridge/')
+          exit $rc
+      - name: Lint
+        run: |
+          mapfile -t files < <(git ls-files '*.py' | grep -v '^holoscan-sensor-bridge/')
+          # E501 line length is not enforced; these files carry wide register tables.
+          ruff check --select=E9,F63,F7,F82,F401,F841 "${files[@]}"
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No hardcoded rig credentials
+        run: |
+          # The rig sudo/VNC password has been committed before; keep it out.
+          if git grep -nE "RIG_SUDO_PW=[a-zA-Z0-9]|vncpasswd -f" -- ':!holoscan-sensor-bridge' ':!.github' \
+             | grep -vE 'RIG_SUDO_PW="\$\{RIG_SUDO_PW|VNC_PW'; then
+            echo "::error::hardcoded credential, or vncpasswd not fed from \$VNC_PW"
+            exit 1
+          fi
+          echo "clean"
+
+  licensing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No NVIDIA-proprietary sources committed
+        run: |
+          # NVIDIA SDK code is carried as patches, never as files. See
+          # d457-sipl/sdk-patches/multicam-patches/.
+          if git grep -l "LicenseRef-NvidiaProprietary" \
+             -- ':!*.md' ':!*/.gitignore' ':!*.patch' ':!.github'; then
+            echo "::error::NVIDIA-proprietary source committed; carry it as a patch instead"
+            exit 1
+          fi
+          echo "clean"

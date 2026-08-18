@@ -406,9 +406,12 @@ PYBIND11_MODULE(_hololink, m)
 
     // Bind PixelFormat enum
     py::enum_<hololink::csi::PixelFormat>(m, "PixelFormat")
+        .value("INVALID", hololink::csi::PixelFormat::INVALID, R"pbdoc(Invalid pixel format)pbdoc")
         .value("RAW_8", hololink::csi::PixelFormat::RAW_8, R"pbdoc(RAW 8-bit)pbdoc")
         .value("RAW_10", hololink::csi::PixelFormat::RAW_10, R"pbdoc(RAW 10-bit)pbdoc")
-        .value("RAW_12", hololink::csi::PixelFormat::RAW_12, R"pbdoc(RAW 12-bit)pbdoc");
+        .value("RAW_12", hololink::csi::PixelFormat::RAW_12, R"pbdoc(RAW 12-bit)pbdoc")
+        .value("RAW_16", hololink::csi::PixelFormat::RAW_16, R"pbdoc(RAW 16-bit)pbdoc")
+        .value("YUYV_422_8", hololink::csi::PixelFormat::YUYV_422_8, R"pbdoc(YUV422 8-bit packed (Y0 U Y1 V))pbdoc");
 
     // Bind BayerFormat enum
     py::enum_<hololink::csi::BayerFormat>(m, "BayerFormat")
@@ -466,7 +469,7 @@ PYBIND11_MODULE(_hololink, m)
         .def("unconfigure", &DataChannel::unconfigure)
         .def_static("use_multicast", &DataChannel::use_multicast, "metadata"_a, "address"_a, "port"_a)
         .def_static("use_broadcast", &DataChannel::use_broadcast, "metadata"_a, "port"_a)
-        .def("configure_socket", &DataChannel::configure_socket, "socket_fd"_a)
+        .def("configure_socket", &DataChannel::configure_socket, py::arg("socket_fd"), py::arg("udp_port") = 0)
         .def_static("use_sensor", &DataChannel::use_sensor, "metadata"_a, "sensor_number"_a)
         .def("frame_end_sequencer", &DataChannel::frame_end_sequencer)
         .def_static("use_data_plane_configuration", &DataChannel::use_data_plane_configuration, "metadata"_a, "data_plane"_a)

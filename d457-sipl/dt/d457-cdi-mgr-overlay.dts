@@ -1,0 +1,61 @@
+/*
+ * d457-cdi-mgr-overlay.dts — SIPL cdi-mgr device-block overlay for D457 on Advantech MIC-742 (Thor, L4T r39.2)
+ *
+ * This is an ALTERNATIVE to the stock V4L2 camera overlay
+ * (/boot/tegra264-camera-d4xx-overlay-advantech.dtbo): select it via a separate,
+ * NON-DEFAULT extlinux LABEL (see ROLLBACK.md). When this overlay is applied INSTEAD of the
+ * d4xx one, the d4xx camera nodes are simply never added, so there is nothing to disable and
+ * `DEFAULT d4xx` remains the power-cycle auto-fallback.
+ *
+ * Lets `cdi_mgr.ko` instantiate `/dev/cdi-mgr.9.a` so `libnvsipl_devblk_cdi` can drive the
+ * camera (see ../../.triage/FINDINGS.md "why the DT").
+ *
+ * CONFIRMED from the live d4xx DT + the Advantech d4xx overlay (dt/d4xx-camera.dts.ref):
+ *   - i2c node path: /bus@0/i2c@810c6a0000  (= /dev/i2c-9)            [V1 ✓]
+ *   - board compatible (required for the bootloader to apply the overlay)
+ *   - 2 CSI lanes, CSI-A, deser MAX96712@0x29, ser MAX9295@0x40, sensor depth@0x1a
+ *   - cdi-mgr fields per struct cdi_mgr_platform_data (media/cdi-mgr.h)
+ *
+ * STILL TO VALIDATE ON HARDWARE:
+ *   [V2 ✓ RESOLVED by live test] cdi-mgr MUST be a top-level PLATFORM node (target-path "/"),
+ *        NOT a child of the i2c controller. First attempt placed it under i2c@810c6a0000 -> the
+ *        node appeared in the DT but the kernel treated it as an i2c client (reg=0x0), so the
+ *        cdi_mgr PLATFORM driver never bound and no /dev/cdi-mgr* was created. cdi_mgr finds its
+ *        adapter via the `i2c-bus` property, so it is standalone (no reg, not an i2c child).
+ *   [V3] csi-port int for CSI-A (0) -> /dev/cdi-mgr.9.a name SIPL opens.
+ *   [V4] PoC power: no pwdn GPIO in the d4xx DT (rail likely always-on); add pwr-gpios if gated.
+ *   [V5] official nvidia,cdi-mgr property spellings (fields confirmed from cdi-mgr.h).
+ *   [V6] whether SIPL-for-L4T needs nvcsi@.../tegra-capture-vi port config in DT (the d4xx
+ *        overlay sets it for V4L2) or programs VI/NVCSI itself for the cdi-mgr path. If Init()
+ *        fails on capture setup, port that nvcsi/vi config from the d4xx overlay here.
+ */
+/dts-v1/;
+/plugin/;
+
+/ {
+    overlay-name = "Jetson RealSense D457 SIPL cdi-mgr (Advantech Thor)";
+    compatible = "nvidia,p4071-0000+p3834-0008", "nvidia,p3834-0008", "nvidia,tegra264";
+
+    fragment@0 {
+        target-path = "/";          /* root: cdi-mgr is a platform device, not an i2c child [V2 ✓] */
+        __overlay__ {
+            cdi-mgr {
+                compatible = "nvidia,cdi-mgr";
+                status = "okay";
+
+                /* [V5 ✓ RESOLVED by reading cdi_mgr.c of_cdi_mgr_pdata()] Required children of
+                 * the cdi-mgr node: `tegra` (i2c-bus + csi-port) and `pwr_ctrl`. Optional pwdn/
+                 * mcdi GPIO groups (props "pwdn-gpios"/"mcdi-gpios" on this node) — absent here
+                 * (PoC rail always-on), and cdi_mgr_of_get_grp_gpio() returns 0 when absent. */
+                tegra {
+                    i2c-bus = <0x09>;      /* /dev/i2c-9 == i2c@810c6a0000 (adapter 9) */
+                    csi-port = <0x00>;     /* CSI-A -> /dev/cdi-mgr.9.a [V3] */
+                };
+
+                pwr_ctrl {
+                    default-power-on;      /* [V4] no PoC gpio gating on this board */
+                };
+            };
+        };
+    };
+};

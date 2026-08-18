@@ -1,0 +1,356 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 RealSense AI. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import argparse
+import logging
+import os
+import time
+
+import cupy as cp
+import holoscan
+import numpy as np
+
+import hololink as hololink_module
+
+
+class D457StreamConvertOp(holoscan.core.Operator):
+    """Convert one D457 RAW16 pipeline buffer to an RGBA uint8 image for Holoviz.
+
+    The capture op emits a flat uint8 tensor (size bytes) keyed by `tensor_name`. We reshape to
+    [height, bytes_per_line] (honoring the buffer row pitch), slice to width*2 bytes/row, then
+    interpret per stream.
+    """
+
+    def __init__(
+        self, *args, tensor_name, stream, width, height, bytes_per_line, depth_range_mm=4000,
+        depth_colormap="jet", **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self._tensor_name = tensor_name
+        self._stream = stream
+        self._width = width
+        self._height = height
+        self._bytes_per_line = bytes_per_line
+        self._depth_range_mm = depth_range_mm
+        self._depth_colormap = depth_colormap
+        self._jet = self._make_jet_lut()
+        self._fps_count = 0
+        self._fps_window_start = None
+
+    @staticmethod
+    def _make_jet_lut():
+        # 256-entry Jet colormap [256, 3] uint8 (like the RealSense viewer's default depth coloring).
+        x = np.linspace(0.0, 1.0, 256)
+        r = np.clip(np.minimum(4 * x - 1.5, -4 * x + 4.5), 0, 1)
+        g = np.clip(np.minimum(4 * x - 0.5, -4 * x + 3.5), 0, 1)
+        b = np.clip(np.minimum(4 * x + 0.5, -4 * x + 2.5), 0, 1)
+        return cp.asarray((np.stack([r, g, b], axis=1) * 255).astype(np.uint8))
+
+    def setup(self, spec):
+        spec.input("input")
+        spec.output("output")
+
+    def compute(self, op_input, op_output, context):
+        in_message = op_input.receive("input")
+        flat = cp.asarray(in_message.get(self._tensor_name)).reshape(-1).view(cp.uint8)
+
+        # Reshape to [height, bytes_per_line] and drop any row padding -> [height, width*2].
+        rowbytes = self._width * 2
+        frame = flat[: self._height * self._bytes_per_line].reshape(
+            self._height, self._bytes_per_line
+        )[:, :rowbytes]
+
+        if self._stream == "depth":
+            # Z16 millimeters. The SIPL RAW16 buffer delivers depth BIG-ENDIAN (high byte first);
+            # reading it little-endian sawtooths a smooth surface into cyclical bands. Reassemble
+            # as (high << 8) | low.
+            b = frame.reshape(self._height, self._width, 2).astype(cp.uint16)
+            z = (b[:, :, 0] << 8) | b[:, :, 1]
+            if self._depth_colormap == "gray":
+                g = cp.clip(z.astype(cp.float32) / float(self._depth_range_mm) * 255.0, 0, 255).astype(cp.uint8)
+                rgba = self._gray_to_rgba(g)
+            else:
+                # Histogram-equalized Jet colormap, like the RealSense viewer (invalid/0 depth -> black).
+                rgba = self._depth_to_jet_rgba(z)
+        elif self._stream == "rgb":
+            # YUYV [Y0, U, Y1, V] -> RGB.
+            rgba = self._yuyv_to_rgba(frame.astype(cp.float32))
+        else:  # ir: interleaved left/right Y8; show the left view.
+            g = frame[:, 0::2]
+            rgba = self._gray_to_rgba(g)
+
+        op_output.emit({self._tensor_name: rgba}, "output")
+        self._log_fps()
+
+    def _log_fps(self):
+        # Console fps per tile (not baked into the image -- avoids a CPU roundtrip/custom kernel
+        # just to draw text on a GPU buffer) so a soak run's health is visible without a display.
+        now = time.time()
+        if self._fps_window_start is None:
+            self._fps_window_start = now
+        self._fps_count += 1
+        elapsed = now - self._fps_window_start
+        if elapsed >= 5.0:
+            logging.info("%s: %.1f fps", self._tensor_name, self._fps_count / elapsed)
+            self._fps_count = 0
+            self._fps_window_start = now
+
+    def _depth_to_jet_rgba(self, z):
+        # Histogram-equalize valid (non-zero) depth across 0..255, then apply the Jet colormap.
+        h, w = z.shape
+        zf = z.reshape(-1)
+        hist = cp.bincount(zf, minlength=65536).astype(cp.float32)
+        hist[0] = 0.0  # ignore invalid / zero depth
+        cdf = cp.cumsum(hist)
+        lut = (cdf / cp.maximum(cdf[-1], 1.0) * 255.0).astype(cp.uint8)  # [65536] equalization LUT
+        eq = lut[zf].reshape(h, w)
+        rgb = self._jet[eq]  # [H, W, 3]
+        rgb[z == 0] = 0  # invalid depth -> black
+        rgba = cp.empty((h, w, 4), cp.uint8)
+        rgba[:, :, 0:3] = rgb
+        rgba[:, :, 3] = 255
+        return rgba
+
+    @staticmethod
+    def _gray_to_rgba(g):
+        h, w = g.shape
+        rgba = cp.empty((h, w, 4), cp.uint8)
+        rgba[:, :, 0] = g
+        rgba[:, :, 1] = g
+        rgba[:, :, 2] = g
+        rgba[:, :, 3] = 255
+        return rgba
+
+    def _yuyv_to_rgba(self, b):
+        Y = b[:, 0::2]
+        U = cp.repeat(b[:, 1::4], 2, axis=1) - 128.0
+        V = cp.repeat(b[:, 3::4], 2, axis=1) - 128.0
+        R = cp.clip(Y + 1.402 * V, 0, 255)
+        G = cp.clip(Y - 0.344 * U - 0.714 * V, 0, 255)
+        B = cp.clip(Y + 1.772 * U, 0, 255)
+        h, w = Y.shape
+        rgba = cp.empty((h, w, 4), cp.uint8)
+        rgba[:, :, 0] = R.astype(cp.uint8)
+        rgba[:, :, 1] = G.astype(cp.uint8)
+        rgba[:, :, 2] = B.astype(cp.uint8)
+        rgba[:, :, 3] = 255
+        return rgba
+
+
+class HoloscanApplication(holoscan.core.Application):
+    def __init__(self, camera_config, json_config, stream, link_mask, headless, fullscreen,
+                 frame_limit, depth_colormap="jet", max_window_width=1920, strict=False):
+        super().__init__()
+        self._camera_config = camera_config
+        self._json_config = json_config
+        self._stream = stream
+        self._link_mask = link_mask
+        self._headless = headless
+        self._fullscreen = fullscreen
+        self._frame_limit = frame_limit
+        self._depth_colormap = depth_colormap
+        self._max_window_width = max_window_width
+        self._strict = strict
+
+    def compose(self):
+        if self._frame_limit:
+            condition = holoscan.conditions.CountCondition(
+                self, name="count", count=self._frame_limit
+            )
+        else:
+            condition = holoscan.conditions.BooleanCondition(
+                self, name="ok", enable_tick=True
+            )
+
+        sipl_capture = hololink_module.operators.D457SIPLCaptureOp(
+            self,
+            condition,
+            name="d457_sipl_capture",
+            camera_config=self._camera_config,
+            json_config=self._json_config,
+            stream=self._stream,
+            link_mask=self._link_mask,
+            strict=self._strict,
+        )
+        camera_info = sipl_capture.get_camera_info()
+
+        # Group tiles by physical camera (link): one ROW per camera, one COLUMN per stream on that
+        # camera (order of first appearance == query/driver stream ordinal, so depth|rgb|ir lines up
+        # left-to-right). A single-camera config degenerates to one row, matching the old layout.
+        links_in_order = list(dict.fromkeys(info.link for info in camera_info))
+        row_of_link = {link: r for r, link in enumerate(links_in_order)}
+        col_of_output = {}
+        next_col = [0] * len(links_in_order)
+        for info in camera_info:
+            r = row_of_link[info.link]
+            col_of_output[info.output_name] = next_col[r]
+            next_col[r] += 1
+
+        rows = len(links_in_order)
+        cols = max(next_col) if next_col else 1
+        cell_w = 1.0 / cols
+        cell_h = 1.0 / rows
+        specs = []
+        for info in camera_info:
+            r = row_of_link[info.link]
+            c = col_of_output[info.output_name]
+            view = holoscan.operators.HolovizOp.InputSpec.View()
+            view.offset_x = c * cell_w
+            view.offset_y = r * cell_h
+            view.width = cell_w
+            view.height = cell_h
+            spec = holoscan.operators.HolovizOp.InputSpec(
+                info.output_name, holoscan.operators.HolovizOp.InputType.COLOR
+            )
+            spec.views = [view]
+            specs.append(spec)
+
+        # Size the window to the grid at native 16:9 per cell, clamped so an 8-tile grid doesn't
+        # produce an unusably wide window over VNC; Holoviz's per-view width/height above still
+        # scales each tile to fit, so clamping here only affects on-screen size, not layout.
+        max_w = max(info.width for info in camera_info)
+        max_h = max(info.height for info in camera_info)
+        window_width = cols * max_w
+        window_height = rows * max_h
+        if window_width > self._max_window_width:
+            scale = self._max_window_width / window_width
+            window_width = int(window_width * scale)
+            window_height = int(window_height * scale)
+        # (Fullscreen isn't usable over VNC -- GLFW's RANDR mode-set fails.)
+        visualizer = holoscan.operators.HolovizOp(
+            self,
+            name="holoviz",
+            width=window_width,
+            height=window_height,
+            headless=self._headless,
+            tensors=specs,
+        )
+
+        for info in camera_info:
+            convert = D457StreamConvertOp(
+                self,
+                name=f"convert_{info.output_name}",
+                tensor_name=info.output_name,
+                stream=info.stream,
+                width=info.width,
+                height=info.height,
+                bytes_per_line=info.bytes_per_line,
+                depth_colormap=self._depth_colormap,
+            )
+            self.add_flow(sipl_capture, convert, {("output", "input")})
+            self.add_flow(convert, visualizer, {("output", "receivers")})
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--list-configs", action="store_true", help="List available configs then exit"
+    )
+    parser.add_argument(
+        "--camera-config", default="", help="Camera config to use (e.g. D457_Camera)"
+    )
+    parser.add_argument(
+        "--json-config", default="", help="JSON configuration file to use"
+    )
+    parser.add_argument(
+        "--stream",
+        default="",
+        choices=("", "depth", "rgb", "ir"),
+        help="Stream to select for a single-sensor config (sets D457_STREAM before init). "
+             "Ignored (with a warning) when --link-mask enables more than one link.",
+    )
+    parser.add_argument(
+        "--link-mask",
+        default="0x0001",
+        help="GMSL link-enable mask, one nibble per link (hex, e.g. 0x0011 for 2 cams on links "
+             "0+1, 0x1111 for 4 cams on links 0-3). Default 0x0001 = single camera on link 0.",
+    )
+    parser.add_argument(
+        "--max-window-width",
+        type=int,
+        default=1920,
+        help="Clamp the on-screen window to this width (scales the whole grid down; layout is "
+             "unaffected). Useful so an 8-tile grid doesn't produce an unusably wide VNC window.",
+    )
+    parser.add_argument("--headless", action="store_true", help="Run in headless mode")
+    parser.add_argument(
+        "--fullscreen", action="store_true", help="Run in fullscreen mode"
+    )
+    parser.add_argument(
+        "--frame-limit",
+        type=int,
+        default=None,
+        help="Exit after receiving this many frames",
+    )
+    parser.add_argument(
+        "--depth-colormap",
+        default="jet",
+        choices=("jet", "gray"),
+        help="Depth rendering: histogram-equalized Jet (like the RealSense viewer) or plain grayscale",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Throw on a per-camera buffer-wait timeout instead of skipping that tick "
+             "(default: skip and keep running -- one stalled stream doesn't kill the whole view)",
+    )
+    parser.add_argument(
+        "--log-level", type=int, default=20, help="Logging level to display"
+    )
+    args = parser.parse_args()
+    hololink_module.logging_level(args.log_level)
+
+    if args.list_configs:
+        hololink_module.operators.D457SIPLCaptureOp.list_available_configs(args.json_config)
+        return
+
+    link_mask = int(args.link_mask, 16)
+    # bin(mask) has one '1' bit per enabled link nibble only when each nibble is exactly 0x1 (the
+    # convention used everywhere in this repo -- 0x0011, 0x1111, etc.), which is all we need here.
+    multi_link = bin(link_mask).count("1") > 1
+
+    stream = args.stream
+    if multi_link and stream:
+        logging.warning(
+            "--stream %s is ignored: --link-mask 0x%x enables more than one link, so streams are "
+            "selected by query ordinal (depth/rgb/ir), not D457_STREAM", stream, link_mask
+        )
+        stream = ""
+
+    # Keep the env in sync so the driver selects the requested stream even if --stream is unset but
+    # D457_STREAM is exported by the caller. Only meaningful for a single-link config (the driver/op
+    # ignore it otherwise); avoid leaking a caller-exported D457_STREAM into a multi-link run.
+    if stream:
+        os.environ["D457_STREAM"] = stream
+    elif multi_link:
+        os.environ.pop("D457_STREAM", None)
+
+    application = HoloscanApplication(
+        args.camera_config,
+        args.json_config,
+        stream,
+        link_mask,
+        args.headless,
+        args.fullscreen,
+        args.frame_limit,
+        args.depth_colormap,
+        args.max_window_width,
+        args.strict,
+    )
+    application.run()
+
+
+if __name__ == "__main__":
+    main()

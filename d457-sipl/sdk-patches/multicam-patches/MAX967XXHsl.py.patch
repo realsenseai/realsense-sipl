@@ -1,0 +1,227 @@
+--- a/MAX967XXHsl.py
++++ b/MAX967XXHsl.py
+@@ -261,13 +261,13 @@
+         with Sequence('check_csi_pll_lock_2x4'):
+             annotate('Check CSI PLL Lock 2x4')
+             with self.max967xx:
+-                poll(0x0400, 0x60, 0xF0, 10000, 20)
++                poll(0x0400, 0x20, 0x20, 10000, 20)
+ 
+     def seq_check_csi_pll_lock_4x2(self):
+         with Sequence('check_csi_pll_lock_4x2'):
+-            annotate('Check CSI PLL Lock 4x2')
++            annotate('Check CSI PLL Lock 4x2 (D457: PHY0/1 only -> 2x4 pattern 0x60)')
+             with self.max967xx:
+-                poll(0x0400, 0xF0, 0xF0, 10000, 20)
++                poll(0x0400, 0x20, 0x20, 10000, 20)
+ 
+     def seq_disable_csi_out(self):
+         with Sequence('disable_csi_out'):
+@@ -357,76 +357,76 @@
+         with Sequence('set_ser_video_pipeline_mapping_A'):
+             annotate('Set SER Video Pipeline Mapping for Link A with configurable txPort-based value')
+             with self.max967xx:
+-                write(0x090B, 0x07)
+-                writeFromMemory(0x092D, self.video_pipeline_mapping_link_a_block.reg_092D)
+-                write(0x090D, 0x2c)
+-                write(0x090E, 0x2c)
+-                write(0x090F, 0x00)
+-                write(0x0910, 0x00)
+-                write(0x0911, 0x01)
+-                write(0x0912, 0x01)
+-
+-                # Video pipeline Selection
+-                write(0x00F0, 0x62)
+-                write(0x00F1, 0xEA)
++                # ===== GENERIC D457 multi-camera pipe map (pipe-per-VC) =====
++                # Parameterized by build-time env: D457_MAP_LINKS (default 2), D457_MAP_STREAMS (default 3
++                # => depth,rgb,ir). Stage 2 = 2 links x 3 streams (6 pipes). Stage 3 = 4 links x 2 streams
++                # (depth,rgb; 8 pipes). Each (link L, stream S) -> deser pipe P = L*SPL+S, output CSI VC =
++                # L*4+S. Stream S: 0=depth(0x2E), 1=rgb(0x1E->0x2E remap), 2=ir(0x2E). Since L*4 is a
++                # multiple of 4, native-VC == output-VC-lsb == S for the map slots; the output VC high bits
++                # (>=VC4) ride the extended-VC path via MIPI_TX_EXT (0x800+0x10*P = (VC>>2)<<2). Per-pipe:
++                # MAP_EN base+0x00, dest-PHY base+0x22 (PHY1=0x55), PIX SRC/DST base+0x02/03, FS base+0x04/05,
++                # FE base+0x06/07, rgb slot3 base+0x08/09; VIDEO_RX 0x0100+0x12*P (+6 errata for P>=5);
++                # VIDEO_PIPE_SEL nibble per pipe = (L<<2)|S in reg 0x00F0+(P>>1); VIDEO_PIPE_EN 0x00F4.
++                import os
++                NL  = int(os.environ.get('D457_MAP_LINKS', '2'))
++                SPL = int(os.environ.get('D457_MAP_STREAMS', '3'))
++                npipe = NL * SPL
++                LPG = max(1, 4 // SPL)   # links per extended-VC msb-group (4 VCs); SPL2->2, SPL3->1
++                write(0x00F4, 0x00)  # disable all pipes while (re)configuring
++                sel = {}
++                for L in range(NL):
++                    for S in range(SPL):
++                        P = L * SPL + S
++                        # Output CSI VC placement: EACH link's streams MUST stay inside ONE 4-VC msb
++                        # group (a link's streams share one GMSL/ser; splitting them across the extended-VC
++                        # msb boundary breaks the deser routing). Also keep VC<=7 (Tegra VI ignores VC>=8).
++                        # => outVC = (L//LPG)*4 + (L%LPG)*SPL + S. SPL3: link0=VC0-2, link1=VC4-6 (=L*4).
++                        # SPL2: link0=0/1, link1=2/3, link2=4/5, link3=6/7 (packed VC0-7).
++                        outVC = (L // LPG) * 4 + (L % LPG) * SPL + S
++                        base = 0x090B + 0x40 * P
++                        vrx  = 0x0100 + 0x12 * P + (6 if P >= 5 else 0)
++                        tx   = 0x0800 + 0x10 * P
++                        is_rgb = (S == 1)
++                        src = (S << 6)               # INPUT: serializer sends NATIVE VC S (depth0/rgb1/ir2)
++                        dst = ((outVC & 3) << 6)     # OUTPUT: packed CSI VC low 2 bits
++                        write(base + 0x00, 0x0F if is_rgb else 0x07)   # MAP_EN (rgb=4 maps, else 3)
++                        write(base + 0x22, 0x55)                        # dest -> PHY1
++                        write(base + 0x02, src | (0x1E if is_rgb else 0x2E))  # PIX SRC (native VC/DT)
++                        write(base + 0x03, dst | 0x2E)                  # PIX DST (packed VC / RAW16)
++                        write(base + 0x04, src | 0x00)                  # FS SRC
++                        write(base + 0x05, dst | 0x00)                  # FS DST
++                        write(base + 0x06, src | 0x01)                  # FE SRC
++                        write(base + 0x07, dst | 0x01)                  # FE DST
++                        if is_rgb:
++                            write(base + 0x08, src | 0x2E)              # slot3 SRC
++                            write(base + 0x09, dst | 0x2E)              # slot3 DST
++                        msb = (outVC >> 2) << 2                          # extended-VC high bits (0 or 4)
++                        write(tx + 0, msb); write(tx + 1, msb); write(tx + 2, msb); write(tx + 3, msb)
++                        write(vrx, 0x23)                                 # VIDEO_RX: DIS_PKT_DET
++                        r = 0x00F0 + (P >> 1)
++                        sel[r] = sel.get(r, 0) | (((L << 2) | S) << (4 if (P & 1) else 0))
++                for r in sorted(sel):
++                    write(r, sel[r])
++                write(0x00F4, (1 << npipe) - 1)                          # VIDEO_PIPE_EN: pipes 0..npipe-1
+                 writeFromMemory(0x0939, self.video_pipeline_mapping_link_a_block.reg_0939)
++                write(0x0018, 0x01)
++                delay(100000)
+                 delay(20000)
+ 
+     def seq_set_ser_video_pipeline_mapping_B(self):
+         with Sequence('set_ser_video_pipeline_mapping_B'):
+-            annotate('Set SER Video Pipeline Mapping for Link B with configurable txPort-based value')
+-            with self.max967xx:
+-                write(0x094B, 0x07)
+-                writeFromMemory(0x096D, self.video_pipeline_mapping_link_b_block.reg_096D)
+-                write(0x094D, 0x2c)
+-                write(0x094E, 0x6c)
+-                write(0x094F, 0x00)
+-                write(0x0950, 0x40)
+-                write(0x0951, 0x01)
+-                write(0x0952, 0x41)
+-
+-                # Video pipeline Selection
+-                write(0x00F1, 0xEA)
+-                writeFromMemory(0x0979, self.video_pipeline_mapping_link_b_block.reg_0979)
+-                delay(20000)
++            # MULTI-CAM: no-op. mapping_A programs ALL deser pipes (0-5, both links) in one place to
++            # avoid the two per-link sequences racing on the shared VIDEO_PIPE_SEL/EN regs. Link B's
++            # pixel-map (pipes 3-5, VC4/5/6) is set by mapping_A.
++            annotate('D457 multi-cam: link B pipes programmed by mapping_A (no-op here)')
+ 
+     def seq_set_ser_video_pipeline_mapping_C(self):
+         with Sequence('set_ser_video_pipeline_mapping_C'):
+-            annotate('Set SER Video Pipeline Mapping for Link C with configurable txPort-based value')
+-            with self.max967xx:
+-                write(0x098B, 0x07)
+-                writeFromMemory(0x09AD, self.video_pipeline_mapping_link_c_block.reg_09AD)
+-                write(0x098D, 0x2c)
+-                write(0x098E, 0xac)
+-                write(0x098F, 0x00)
+-                write(0x0990, 0x80)
+-                write(0x0991, 0x01)
+-                write(0x0992, 0x81)
+-
+-                # Video pipeline Selection
+-                write(0x00F0, 0x62)
+-                write(0x00F1, 0xEA)
+-                writeFromMemory(0x09B9, self.video_pipeline_mapping_link_c_block.reg_09B9)
+-                delay(20000)
++            annotate('D457 multi-cam: link C pipes programmed by mapping_A (no-op here)')
+ 
+     def seq_set_ser_video_pipeline_mapping_D(self):
+         with Sequence('set_ser_video_pipeline_mapping_D'):
+-            annotate('Set SER Video Pipeline Mapping for Link D with configurable txPort-based value')
+-            with self.max967xx:
+-                write(0x09CB, 0x07)
+-                writeFromMemory(0x09ED, self.video_pipeline_mapping_link_d_block.reg_09ED)
+-                write(0x09CD, 0x2c)
+-                write(0x09CE, 0xec)
+-                write(0x09CF, 0x00)
+-                write(0x09D0, 0xC0)
+-                write(0x09D1, 0x01)
+-                write(0x09D2, 0xC1)
+-
+-                # Video pipeline Selection
+-                write(0x00F0, 0x62)
+-                write(0x00F1, 0xEA)
+-                writeFromMemory(0x09F9, self.video_pipeline_mapping_link_d_block.reg_09F9)
+-                delay(20000)
++            annotate('D457 multi-cam: link D pipes programmed by mapping_A (no-op here)')
+ 
+     # --------------------------------------------------------------------------
+     # Dual-sensor (HAWK-style) video pipeline mapping sequences
+@@ -676,37 +676,44 @@
+                 writeFromMemory(0x041E, self.mipi_phy_datarate_config_block.reg_041E_value)
+ 
+     def seq_set_mipi_d_phy(self):
++        # D457 deser->Tegra PHY: 2x4 port mode on PHY0+PHY1 (port A), 4 MIPI lanes.
++        # 4-lane mirrors the d4xx kernel driver's max96712_init_settings() with lane_cnt=4
++        # (realsense_mipi_platform_driver 758440a "Align all 96712 overlays to 4 MIPI lanes"):
++        #     0x094A = (lane_cnt-1)<<6 | 1<<4        -> 4 lanes 0xD0   (2 lanes was 0x50)
++        #     0x0418 = 1<<5 (PHY1_SW_OVRR) | rate/100
++        # d4xx runs the same HYBRID topology: DS5->serializer stays 2-lane (D457_VAL_MIPI_2LANE),
++        # only the deser->Jetson segment widens.
++        #
++        # RATE IS BUILD-TIME TUNABLE: D457_DPHY_RATE_100M = lane rate in units of 100 Mbps
++        # (BACKTOP25 bits[4:0] literally hold rate/100: 0x0B=1100, 0x0F=1500, 0x19=2500 = part max).
++        # Whatever you set here MUST match the query's mipiSettings.dphyRate (kbps) -- they are a
++        # matched set; a mismatch truncates frames (that was the original 2500000-vs-594000 bug,
++        # FINDINGS SS5o). Like D457_MAP_*, this is read when PyHSL compiles, so a change needs the
++        # hslc-cache force (rm hsl_gen/MAX967XXHsl.hslc && touch this file) before `make`.
++        #
++        # DEFAULT = 25 (2500 Mbps/lane), the MAX96712 D-PHY maximum. Rate sweep on-rig 2026-08-02
++        # (10 s depth runs): 1100/1500/2000/2500 ALL clean, 0 drops, 0 faults; 2500 also clean with
++        # depth+rgb+ir together. SIPL's own deser driver refuses to go past 2500 -- ask for 3100 and
++        # MAX967XX.cpp still computes mipiSpeed=25 (0x19) while Tegra gets configured at 3100000, so
++        # >2500 puts the two ends out of agreement. d4xx uses 1100 here (`lane_cnt=4`); set
++        # D457_DPHY_RATE_100M=11 (+ query dphyRate 1100000) to go back to the d4xx-aligned value.
++        # NOTE: MAX967XX.cpp fires setup_initial_deskew + trigger_deskew once dphyRate >= 1500000,
++        # so crossing 1500 changes behaviour, it is not just a bigger number.
++        import os
++        rate100 = int(os.environ.get('D457_DPHY_RATE_100M', '25'))
+         with Sequence('set_mipi_d_phy'):
+-            annotate('Set MIPI D PHY')
++            annotate('D457 2x4-4lane d4xx-exact (%d Mbps/lane)' % (rate100 * 100))
+             with self.max967xx:
+-                #TODO: to make it configurable
+                 write(0x08A0, 0x24)
+-                write(0x08A2, 0xF4)
+-                write(0x08AD, 0x13)
+-                write(0x08AE, 0x7C)
+-
+-                write(0x08A2, 0xF4)
+-
+-                write(0x090A, 0xC0)
+-                write(0x094A, 0xC0)
+-
+-                write(0x098A, 0xC0)
+-                write(0x09CA, 0xC0)
+-
++                write(0x094A, 0xD0)
+                 write(0x08A3, 0xE4)
+-                write(0x08A4, 0xE4)
+-
+-                # Write MIPI speed configuration to PHY registers
+-                writeFromMemory(0x0415, self.mipi_phy_datarate_config_block.reg_0415_value)
+-                writeFromMemory(0x0418, self.mipi_phy_datarate_config_block.reg_0418_value)
+-                writeFromMemory(0x041B, self.mipi_phy_datarate_config_block.reg_041B_value)
+-                writeFromMemory(0x041E, self.mipi_phy_datarate_config_block.reg_041E_value)
+-
+-    # Deskew register addresses per controller (PHY) - same for MAX96712 and MAX96724
+-    # Controller 0: 0x0903
+-    # Controller 1: 0x0943
+-    # Controller 2: 0x0983
+-    # Controller 3: 0x09C3
++                write(0x0973, 0x10)
++                write(0x1C00, 0xF4)
++                write(0x1D00, 0xF4)
++                write(0x0418, 0x20 | rate100)
++                write(0x1C00, 0xF5)
++                write(0x1D00, 0xF5)
++                write(0x08A2, 0x34)
+ 
+     def seq_setup_initial_deskew_all_controllers(self):
+         """Setup initial deskew for all controllers (DPHY mode with MIPI speed >= 1.5GHz)"""
