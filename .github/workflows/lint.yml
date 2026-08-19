@@ -1,7 +1,7 @@
 name: lint
 
 # d457-sipl and d555-sipl are aarch64 Jetson targets and cannot be compiled here, so this gates the
-# shell and Python -- which is where most review findings have landed -- plus C++ formatting.
+# shell and Python -- which is where most review findings have landed -- plus a credential gate.
 # The vendored holoscan-sensor-bridge/ tree is upstream NVIDIA code and is excluded throughout.
 
 on:
@@ -67,6 +67,20 @@ jobs:
           if git grep -nE "RIG_SUDO_PW=[a-zA-Z0-9]|vncpasswd -f" -- ':!holoscan-sensor-bridge' ':!.github' \
              | grep -vE 'RIG_SUDO_PW="\$\{RIG_SUDO_PW|VNC_PW'; then
             echo "::error::hardcoded credential, or vncpasswd not fed from \$VNC_PW"
+            exit 1
+          fi
+          echo "clean"
+      - name: No rig credential pair in docs or scripts
+        run: |
+          # A username/password pair reads as `user`/`pass` in prose and user/pass in a
+          # shell comment; both were published in d457-sipl/docs/ before. Match the same
+          # token twice across a slash, with or without backticks. Collect the hits rather
+          # than testing xargs' status, which is 123 on no-match and per-batch.
+          hits=$(git ls-files -z -- ':!holoscan-sensor-bridge' ':!.github' \
+                 | xargs -0 grep -InP '(?<![\w/.-])`?([a-z][a-z0-9._-]{2,})`?/`?\1`?(?![\w/.-])' || true)
+          if [ -n "$hits" ]; then
+            printf '%s\n' "$hits"
+            echo "::error::looks like a published user/password pair"
             exit 1
           fi
           echo "clean"

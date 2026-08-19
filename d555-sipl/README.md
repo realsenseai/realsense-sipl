@@ -69,7 +69,9 @@ here. It is kept separate because the driver builds against this pinned variant.
 is worthwhile but needs testing on the D555 rig, so it has deliberately not been done here.
 
 Tracked in [issue #3](https://github.com/realsenseai/realsense-sipl/issues/3), which records the
-concrete divergence (`round_up` accepts `alignment == 0` here and throws in the HSB copy).
+concrete divergence. The `alignment == 0` half is fixed here now -- it used to return 0 instead of
+throwing. What still differs is the accepted domain: the HSB copy rounds any alignment correctly by
+division, while this fork requires a power of two and throws otherwise. Unifying the two is the real fix.
 
 ## Licensing
 

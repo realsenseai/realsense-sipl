@@ -73,9 +73,9 @@ That syncs the driver sources into the SDK tree, applies the MAX9295/MAX96712 pa
 `libnvsipl_qry_d457.so`, and installs them into `/usr/lib/nvsipl_drv`.
 `-c driver,deser,query` selects a subset; see the header of the script for the rest.
 
-For the multi-camera configuration, also overlay `d457-sipl/sdk-patches/multicam-sources/` onto the
-SDK tree before building — each file has its own destination, listed in
-[`d457-sipl/sdk-patches/multicam-sources/README.md`](d457-sipl/sdk-patches/multicam-sources/README.md).
+For the multi-camera configuration, also apply the four SerDes diffs in
+`d457-sipl/sdk-patches/multicam-patches/` to the SDK tree before building — see
+[`d457-sipl/sdk-patches/multicam-patches/README.md`](d457-sipl/sdk-patches/multicam-patches/README.md).
 
 ### D555 UDDF driver (camera over Ethernet)
 
@@ -134,9 +134,7 @@ The **NVIDIA Jetson Camera SIPL SDK is not included**. It is distributed under
 NVIDIA, so both `d457-sipl/` and `d555-sipl/` build against the copy installed on the Jetson
 rather than vendoring it.
 
-> ⚠ One exception remains: `d457-sipl/sdk-patches/multicam-sources/` contains four **modified
-> NVIDIA SDK driver files** (`MAX9295.{cpp,hpp}`, `MAX967XX.cpp`, `MAX967XXHsl.py`) that still
-> carry the NVIDIA proprietary header. Unlike the D555 driver these are NVIDIA's code with our
-> edits, so the header cannot simply be rewritten — they need to be reduced to patches (as
-> `sdk-patches/patch_*.py` already do for the same drivers) before this repository can be
-> published.
+> The four SerDes drivers we had to change more deeply (`MAX9295.{cpp,hpp}`, `MAX967XX.cpp`,
+> `MAX967XXHsl.py`) are **not** committed either. They are NVIDIA's code with our edits, so only the
+> diffs are kept, in `d457-sipl/sdk-patches/multicam-patches/`, alongside an `apply.sh` that
+> reproduces them against a stock SDK tree.

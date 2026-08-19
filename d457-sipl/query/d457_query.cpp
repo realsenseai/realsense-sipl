@@ -207,7 +207,17 @@ static std::string build_camera_config_json()
                 k, v.c_str(), integral ? "integer" : "number", lo, hi, d);
             return std::string(d);
         }
-        return v;
+        // Re-emit the parsed number rather than the raw string. strtod accepts spellings that are
+        // in range but are not valid JSON -- D457_WIDTH=0x500 parses to 1280 and consumes the whole
+        // string, and "1280." passes the integral test -- and splicing either one produces JSON that
+        // will not parse, which is exactly the cryptic-failure-far-from-the-cause case above.
+        if (integral) {
+            return std::to_string(static_cast<long long>(parsed));
+        }
+        char buf[32];
+        // %g is JSON-safe here: the range check above already rejected nan and inf.
+        snprintf(buf, sizeof(buf), "%g", parsed);
+        return std::string(buf);
     };
     auto replaceAll = [](std::string& s, const char* from, const std::string& to) {
         const std::string f(from);

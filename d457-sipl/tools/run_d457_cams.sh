@@ -95,17 +95,21 @@ else
     say "Stage $STAGE: --skip-deploy, reusing whatever profile is currently installed"
 fi
 
-say "rebuilding the Holoscan capture op + player (in case of local edits)"
 say "syncing the Holoscan capture op + player to the rig, and rebuilding there"
 # Graft this project's HSB overlay onto the rig's HSB checkout, then rebuild the two targets in the
 # demo container (CUDA/nvcc are only on its PATH). tools/graft_hsb.sh operates on a local tree, so
 # copy the overlay across first and run it there.
-"${SSH[@]}" "mkdir -p '$RIG_HSB/_graft'"
+#
+# _graft is wiped first: it is pure staging, and reusing it grafted stale sources from the second run
+# onward. `mv -f d457-sipl-hsb repo/d457-sipl/hsb` moves the source INSIDE an existing destination
+# rather than replacing it, so graft_hsb.sh then copied the previous run's overlay and reported
+# success -- and the `2>/dev/null || true` hid it. Same class as the PyHSL cache staleness below.
+"${SSH[@]}" "rm -rf '$RIG_HSB/_graft' && mkdir -p '$RIG_HSB/_graft'"
 "${SCP[@]}" -q -r "$REPO/d457-sipl/hsb/." "$RIG_USER@$RIG_HOST:$RIG_HSB/_graft/d457-sipl-hsb/"
 "${SCP[@]}" -q "$REPO/tools/graft_hsb.sh" "$RIG_USER@$RIG_HOST:$RIG_HSB/_graft/graft_hsb.sh"
 "${SSH[@]}" "set -e
     cd '$RIG_HSB/_graft'
-    mkdir -p repo/d457-sipl && mv -f d457-sipl-hsb repo/d457-sipl/hsb 2>/dev/null || true
+    mkdir -p repo/d457-sipl && mv d457-sipl-hsb repo/d457-sipl/hsb
     mkdir -p repo/tools && cp -f graft_hsb.sh repo/tools/
     bash repo/tools/graft_hsb.sh d457 '$RIG_HSB'"
 "${SSH[@]}" "cat > '$RIG_HSB/_d457_build.sh'" <<'REMOTE'

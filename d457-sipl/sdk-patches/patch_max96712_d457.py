@@ -19,9 +19,9 @@ WHY
   @ 1100 Mbps. The 4x2 PLL-lock check (which demanded all 4 PHYs locked, 0xF0) is still relaxed
   to the PHY1 bit since only PHY0/1 are enabled.
 
-  ⚠ This file is the LEGACY single-camera generator. The live multi-camera source of truth is
-  sdk-patches/multicam-sources/MAX967XXHsl.py (function seq_set_mipi_d_phy, the csi-ab/2x4 path);
-  keep the two in sync.
+  ⚠ This file is the LEGACY single-camera generator. The live multi-camera source of truth is the
+  MAX967XXHsl.py that sdk-patches/multicam-patches/MAX967XXHsl.py.patch produces (function
+  seq_set_mipi_d_phy, the csi-ab/2x4 path); keep the two in sync.
 
 GROUND TRUTH (d4xx max96712_init_settings() with lane_cnt=4 -- realsense_mipi_platform_driver
 commit 758440a "Align all 96712 overlays to 4 MIPI lanes"; the 2-lane values that

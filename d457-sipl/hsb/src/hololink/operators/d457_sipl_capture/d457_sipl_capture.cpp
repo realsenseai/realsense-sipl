@@ -94,18 +94,18 @@ void D457SIPLCaptureOp::list_available_configs(const std::string& json_config)
     }
 }
 
-std::string D457SIPLCaptureOp::stream_for_sensor(uint32_t total_sensors, uint32_t ordinal_in_module) const
+std::string D457SIPLCaptureOp::stream_for_sensor(uint32_t total_cameras, uint32_t ordinal_in_module) const
 {
-    // Single-sensor config: the driver selects the stream from D457_STREAM (or the `stream` param,
+    // Single-camera config: the driver selects the stream from D457_STREAM (or the `stream` param,
     // which we propagate to that env before Init). Label the one pipeline accordingly.
-    if (total_sensors <= 1) {
+    if (total_cameras <= 1) {
         if (!stream_.empty()) {
             return stream_;
         }
         const char* s = std::getenv("D457_STREAM");
         return (s != nullptr && *s != '\0') ? std::string(s) : std::string("depth");
     }
-    // Multi-sensor config: convention 0=depth, 1=rgb, 2=ir, by ORDINAL WITHIN THE OWNING MODULE
+    // Multi-camera config: convention 0=depth, 1=rgb, 2=ir, by ORDINAL WITHIN THE OWNING MODULE
     // (not a flat index across all modules/links -- see query/d457_query.cpp,
     // query/d457_query_4cam.cpp and uddf_driver/D457Sensor.cpp BuildStreamList).
     switch (ordinal_in_module) {
@@ -125,10 +125,10 @@ void D457SIPLCaptureOp::apply_link_offsets()
     // The query engine replicates the D457 module once per enabled GMSL link with IDENTICAL VCs and
     // i2c address; every link beyond 0 must be offset before SetPlatformCfg/Init so its pipelines
     // land on distinct Tegra VI virtual channels and reach that link's own DS5 over i2c. This is an
-    // exact port of the nvsipl_camera app patch (sdk-patches/multicam-sources/
+    // exact port of the nvsipl_camera app patch (sdk-patches/multicam-patches/
     // repatch2_nvsipl_main.sh) -- the formula MUST stay identical to that script's, since it has to
     // match the deser HSL pixel map (MAX967XXHsl.py) placement byte-for-byte, or specific streams
-    // capture 0 frames (see , root causes 1 and 3).
+    // capture 0 frames.
     // Sensor ids are left untouched: nvsipl_camera's identical patch doesn't touch them either, and
     // Stage 2/3 both captured correct distinct per-stream frame counts through it, so SIPL's
     // internal per-sensor id allocation already differentiates replicated modules.
@@ -262,13 +262,25 @@ void D457SIPLCaptureOp::init_nvsipl()
 
     // Flatten the (masked) GMSL modules into one capture pipeline per sensor. SIPL keys pipelines by
     // the sensor's id (CommonSensorConfig::id), which we also use for GetImageAttributes/RegisterImages.
-    uint32_t total_sensors = 0;
+    // Count CAMERA sensors only: the loop below skips non-camera entries (an IMU, say) without
+    // incrementing camera_index, so counting every sensorConfigs entry here would both oversize
+    // per_camera_state_ -- leaving trailing entries with sensor_id_ 0 and a default vc_, which
+    // start() and fill_camera_info() would still walk -- and inflate the count handed to
+    // stream_for_sensor(), skipping its single-camera branch on a module that has one camera plus
+    // one other sensor.
+    uint32_t total_cameras = 0;
     for (const auto& module : sipl_config_.modules) {
-        if (std::holds_alternative<nvsipl::sensorconfig::GmslModule>(module.moduleType)) {
-            total_sensors += std::get<nvsipl::sensorconfig::GmslModule>(module.moduleType).sensorConfigs.size();
+        if (!std::holds_alternative<nvsipl::sensorconfig::GmslModule>(module.moduleType)) {
+            continue;
+        }
+        for (const auto& sensor_variant :
+             std::get<nvsipl::sensorconfig::GmslModule>(module.moduleType).sensorConfigs) {
+            if (std::holds_alternative<nvsipl::sensorconfig::GmslCameraSensorConfig>(sensor_variant)) {
+                ++total_cameras;
+            }
         }
     }
-    per_camera_state_.resize(total_sensors);
+    per_camera_state_.resize(total_cameras);
 
     // RAW (ICP) capture only -- the D457 path has no Tegra ISP.
     nvsipl::NvSIPLPipelineConfiguration sipl_pipeline_config = {
@@ -303,7 +315,7 @@ void D457SIPLCaptureOp::init_nvsipl()
             camera_state.sensor_id_ = sensor.id;
             camera_state.link_ = link;
             camera_state.vc_ = vc;
-            camera_state.stream_ = stream_for_sensor(total_sensors, ordinal_in_module);
+            camera_state.stream_ = stream_for_sensor(total_cameras, ordinal_in_module);
             camera_state.output_name_ = fmt::format("cam{}_{}", link, camera_state.stream_);
             HSB_LOG_INFO(
                 "pipeline[{}] link={} stream={} sensor_id={} vc(src={},dst={}) i2c=0x{:x}",
@@ -312,6 +324,12 @@ void D457SIPLCaptureOp::init_nvsipl()
             ++camera_index;
             ++ordinal_in_module;
         }
+    }
+
+    // The two passes must agree, or per_camera_state_ has entries no pipeline was configured for.
+    if (camera_index != total_cameras) {
+        throw std::runtime_error(fmt::format(
+            "configured {} camera pipelines but counted {}", camera_index, total_cameras));
     }
 
     status = sipl_camera_->Init();

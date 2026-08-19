@@ -60,17 +60,21 @@ fi
 
 say "grafting $PROJECT onto $HSB"
 # The project's own sources, at their HSB-relative paths.
+# __pycache__/*.pyc are skipped: running an example in place leaves bytecode next to it, and copying
+# it lands in an HSB directory that may not exist yet -- under `set -e` that aborted the graft
+# half-done, after the sources but before some of the wiring.
 while IFS= read -r rel; do
     dst="$HSB/$rel"
     mkdir -p "$(dirname "$dst")"
     cp "$SRC/$rel" "$dst"
     echo "   + $rel"
-done < <(cd "$SRC" && find src python examples -type f 2>/dev/null | sed 's#^\./##')
+done < <(cd "$SRC" && find src python examples -type f -not -path '*/__pycache__/*' -not -name '*.pyc' 2>/dev/null | sed 's#^[.]/##')
 
 # The shared HSB files this project must replace wholesale to register the above.
 while IFS= read -r rel; do
+    mkdir -p "$(dirname "$HSB/$rel")"
     cp "$SRC/wiring/$rel" "$HSB/$rel"
     echo "   ~ $rel (wiring)"
-done < <(cd "$SRC/wiring" && find . -type f | sed 's#^\./##')
+done < <(cd "$SRC/wiring" && find . -type f -not -path '*/__pycache__/*' -not -name '*.pyc' | sed 's#^[.]/##')
 
 say "done. Build with:  cmake -S '$HSB' -B <build> -DHOLOLINK_BUILD_SIPL=1 && cmake --build <build> -j"

@@ -412,7 +412,7 @@ bool HsbTransportDriver::processEnumeratedDevice(hololink::Metadata& metadata)
     if (serial_number) {
         // Parse the hex directly rather than via std::stoi: a non-hex character in an enumeration
         // reply threw std::invalid_argument, which unwound out of this callback and aborted the
-        // whole enumeration. A malformed entry should cost us that entry, not the scan.
+        // whole enumeration. A malformed serial should cost us the serial, not the scan.
         auto hex_val = [](char c) -> int {
             if (c >= '0' && c <= '9') { return c - '0'; }
             if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
@@ -423,8 +423,12 @@ bool HsbTransportDriver::processEnumeratedDevice(hololink::Metadata& metadata)
             const int hi = hex_val((*serial_number)[i * 2]);
             const int lo = hex_val((*serial_number)[i * 2 + 1]);
             if (hi < 0 || lo < 0) {
-                log("Skipping device with a malformed serial number: ", *serial_number);
-                return false;
+                // Drop the serial, keep the device. Returning false here stops the scan --
+                // enumerator.cpp does `if (!call_back(metadata)) { return false; }` -- so one
+                // malformed reply from any device on the network would hide all the others.
+                log("Ignoring a malformed serial number, keeping the device: ", *serial_number);
+                memset(device.serial_number, 0, sizeof(device.serial_number));
+                break;
             }
             device.serial_number[i] = static_cast<uint8_t>((hi << 4) | lo);
         }

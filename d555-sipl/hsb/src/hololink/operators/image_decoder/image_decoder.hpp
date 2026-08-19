@@ -88,6 +88,10 @@ private:
     void initialize_alignment_resources();
     // Sizes d_aligned_depth_ from the depth dims actually in use; see the definition.
     void ensure_aligned_depth_buffer();
+    // Re-uploads the host intrinsics/extrinsics whenever a setter has run since the last upload.
+    // The setters only touch the host copies, so without this an app that calls set_rgb_intrinsics()
+    // after start() reprojects against zeroed device intrinsics and produces a silently black frame.
+    void upload_alignment_calibration_if_dirty();
     holoscan::Parameter<std::shared_ptr<holoscan::Allocator>> allocator_;
     holoscan::Parameter<int> cuda_device_ordinal_;
     holoscan::Parameter<std::string> out_tensor_name_;
@@ -132,6 +136,9 @@ private:
     rs2_intrinsics* d_depth_intrinsics_ = nullptr;
     rs2_intrinsics* d_rgb_intrinsics_ = nullptr;
     rs2_extrinsics* d_depth_to_rgb_extrinsics_ = nullptr;
+
+    // Set by every intrinsics/extrinsics setter, cleared once the device copies are refreshed.
+    bool alignment_calibration_dirty_ = true;
 
 };
 

@@ -1,10 +1,25 @@
 #!/bin/bash
-SIPL=$HOME/sipl_full/usr/src/jetson_sipl_api/sipl
+# Re-applies the per-link VC + i2c-address offset to the SDK's nvsipl_camera sample and rebuilds it.
+#
+# Hardened to match apply.sh and the Python patchers: fails loudly instead of silently, and refuses
+# to insert the block twice. Without set -e a missing ~/multicam_bak/main.cpp -- which is NOT tracked,
+# see the README -- let the restore fail quietly and the insert below run against an already-patched
+# file, giving two copies of the loop.
+set -euo pipefail
+
+SIPL=${SIPL:-$HOME/sipl_full/usr/src/jetson_sipl_api/sipl}
 MAIN=$SIPL/samples/camera/main.cpp
-cp ~/multicam_bak/main.cpp $MAIN   # restore clean
+BAK=${BAK:-$HOME/multicam_bak/main.cpp}
+
+[ -f "$BAK" ] || { echo "no pristine copy at $BAK -- stash one before patching" >&2; exit 1; }
+[ -f "$MAIN" ] || { echo "no $MAIN -- is SIPL=$SIPL right?" >&2; exit 1; }
+cp "$BAK" "$MAIN"   # restore clean
 python3 - "$MAIN" <<'PY'
 import sys
 f=sys.argv[1]; s=open(f).read()
+marker='D457 MULTI-CAMERA per-link offset'
+if marker in s:
+    print('main.cpp: already patched, nothing to do'); sys.exit(0)
 anchor='}, configVariant);'
 i=s.find(anchor)
 if i<0: print('ANCHOR NOT FOUND'); sys.exit(1)
@@ -50,5 +65,6 @@ j=i+len(anchor)
 open(f,'w').write(s[:j]+ins+s[j:])
 print('main.cpp: patched (VC + i2c-addr per-link offset)')
 PY
-( cd $SIPL/samples/camera/build_dbg && timeout 200 make -j4 2>&1 | grep -iE 'error|Built target nvsipl_camera' | head -8 )
-ls -la $SIPL/samples/camera/build_dbg/nvsipl_camera
+( cd "$SIPL/samples/camera/build_dbg" && timeout 200 make -j4 2>&1 \
+    | grep -iE 'error|Built target nvsipl_camera' | head -8 ) || true
+ls -la "$SIPL/samples/camera/build_dbg/nvsipl_camera"

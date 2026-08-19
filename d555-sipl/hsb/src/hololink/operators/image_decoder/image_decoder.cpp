@@ -216,6 +216,18 @@ __global__ void projectDepthToRGB(uint32_t* aligned_depth,
 
 namespace hololink::operators {
 
+// hololink/common/cuda_helper.hpp's CudaCheck is for the driver API: it assigns into a CUresult,
+// and cudaError_t will not convert to one. The runtime-API calls below need their own check -- an
+// unchecked cudaMalloc hands the kernels a null pointer and fails somewhere else entirely.
+#define CudaRtCheck(FUNC, WHAT)                                                       \
+    {                                                                                 \
+        const cudaError_t rt_result = FUNC;                                           \
+        if (rt_result != cudaSuccess) {                                               \
+            throw std::runtime_error(fmt::format("[{}:{}] {} failed: {}",             \
+                __FILE__, __LINE__, WHAT, cudaGetErrorString(rt_result)));            \
+        }                                                                             \
+    }
+
 void ImageDecoder::setup(holoscan::OperatorSpec& spec) {
     spec.input<holoscan::gxf::Entity>("input");
     spec.output<holoscan::gxf::Entity>("output");
@@ -238,8 +250,9 @@ void ImageDecoder::start() {
         source, {"frameReconstructionZ16", "frameReconstructionYUYV","colorizeDepth",
              "compute_histogram", "prefix_sum_histogram", "projectDepthToRGB"}));
     
-    // Allocate d_hist_ (256KB)
-    cudaMalloc(&d_hist_, sizeof(int) * 0x10000);
+    // Allocate d_hist_ (256KB). Checked: a failed alloc otherwise reaches cudaMemsetAsync and
+    // compute_histogram as a null pointer.
+    CudaRtCheck(cudaMalloc(&d_hist_, sizeof(int) * 0x10000), "cudaMalloc d_hist_");
 
     // Allocate and upload colormap
     std::vector<float3> colormap = {
@@ -250,8 +263,9 @@ void ImageDecoder::start() {
         {50.f, 0.f, 0.f}      // Dark red
     };
     colormap_size_ = colormap.size();
-    cudaMalloc(&d_colormap_, colormap_size_ * sizeof(float3));
-    cudaMemcpy(d_colormap_, colormap.data(), colormap_size_ * sizeof(float3), cudaMemcpyHostToDevice);
+    CudaRtCheck(cudaMalloc(&d_colormap_, colormap_size_ * sizeof(float3)), "cudaMalloc d_colormap_");
+    CudaRtCheck(cudaMemcpy(d_colormap_, colormap.data(), colormap_size_ * sizeof(float3),
+                           cudaMemcpyHostToDevice), "cudaMemcpy of the colormap");
     
     // Initialize alignment resources if alignment is enabled
     if (align_depth_to_rgb.get()) {
@@ -261,14 +275,17 @@ void ImageDecoder::start() {
 
 void ImageDecoder::set_depth_intrinsics(const rs2_intrinsics& intrinsics) {
     h_depth_intrin_ = intrinsics;
+    alignment_calibration_dirty_ = true;
 }
 
 void ImageDecoder::set_rgb_intrinsics(const rs2_intrinsics& intrinsics) {
     h_rgb_intrin_ = intrinsics;
+    alignment_calibration_dirty_ = true;
 }
 
 void ImageDecoder::set_extrinsics(const rs2_extrinsics& extrinsics) {
     h_extrinsics_ = extrinsics;
+    alignment_calibration_dirty_ = true;
 }
 
 void ImageDecoder::set_depth_intrinsics(int width, int height, float ppx, float ppy, float fx, float fy) {
@@ -278,6 +295,7 @@ void ImageDecoder::set_depth_intrinsics(int width, int height, float ppx, float 
     h_depth_intrin_.ppy = ppy;
     h_depth_intrin_.fx = fx;
     h_depth_intrin_.fy = fy;
+    alignment_calibration_dirty_ = true;
 }
 
 void ImageDecoder::set_rgb_intrinsics(int width, int height, float ppx, float ppy, float fx, float fy) {
@@ -287,23 +305,44 @@ void ImageDecoder::set_rgb_intrinsics(int width, int height, float ppx, float pp
     h_rgb_intrin_.ppy = ppy;
     h_rgb_intrin_.fx = fx;
     h_rgb_intrin_.fy = fy;
+    alignment_calibration_dirty_ = true;
 }
 
 void ImageDecoder::set_extrinsics(const float rotation[9], const float translation[3]) {
     memcpy(h_extrinsics_.rotation, rotation, 9 * sizeof(float));
     memcpy(h_extrinsics_.translation, translation, 3 * sizeof(float));
+    alignment_calibration_dirty_ = true;
 }
 
 void ImageDecoder::initialize_alignment_resources() {
-    // Allocate device memory and copy to GPU
-    cudaMalloc(&d_depth_intrinsics_, sizeof(rs2_intrinsics));
-    cudaMalloc(&d_rgb_intrinsics_, sizeof(rs2_intrinsics));
-    cudaMalloc(&d_depth_to_rgb_extrinsics_, sizeof(rs2_extrinsics));
+    // Allocate the device copies. The upload itself is left to
+    // upload_alignment_calibration_if_dirty(), which also runs on every later change.
+    CudaRtCheck(cudaMalloc(&d_depth_intrinsics_, sizeof(rs2_intrinsics)),
+                "cudaMalloc d_depth_intrinsics_");
+    CudaRtCheck(cudaMalloc(&d_rgb_intrinsics_, sizeof(rs2_intrinsics)),
+                "cudaMalloc d_rgb_intrinsics_");
+    CudaRtCheck(cudaMalloc(&d_depth_to_rgb_extrinsics_, sizeof(rs2_extrinsics)),
+                "cudaMalloc d_depth_to_rgb_extrinsics_");
 
-    cudaMemcpy(d_depth_intrinsics_, &h_depth_intrin_, sizeof(rs2_intrinsics), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_rgb_intrinsics_, &h_rgb_intrin_, sizeof(rs2_intrinsics), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_depth_to_rgb_extrinsics_, &h_extrinsics_, sizeof(rs2_extrinsics), cudaMemcpyHostToDevice);
+    upload_alignment_calibration_if_dirty();
+}
 
+// The setters only write the host copies, so the device copies have to be refreshed before the
+// kernels read them. Without this, an app that calls set_rgb_intrinsics() after start() but before
+// the first compute() passes ensure_aligned_depth_buffer()'s check -- which reads the host copy --
+// and then reprojects against zeroed device intrinsics: fx is 0 and rgb width is 0, so the bounds
+// test rejects every pixel and the aligned output is silently all black.
+void ImageDecoder::upload_alignment_calibration_if_dirty() {
+    if (!alignment_calibration_dirty_) {
+        return;
+    }
+    CudaRtCheck(cudaMemcpy(d_depth_intrinsics_, &h_depth_intrin_, sizeof(rs2_intrinsics),
+                           cudaMemcpyHostToDevice), "cudaMemcpy of the depth intrinsics");
+    CudaRtCheck(cudaMemcpy(d_rgb_intrinsics_, &h_rgb_intrin_, sizeof(rs2_intrinsics),
+                           cudaMemcpyHostToDevice), "cudaMemcpy of the RGB intrinsics");
+    CudaRtCheck(cudaMemcpy(d_depth_to_rgb_extrinsics_, &h_extrinsics_, sizeof(rs2_extrinsics),
+                           cudaMemcpyHostToDevice), "cudaMemcpy of the depth-to-RGB extrinsics");
+    alignment_calibration_dirty_ = false;
 }
 
 // d_aligned_depth_ holds depth reprojected into the RGB frame, but every kernel that touches it is
@@ -480,6 +519,7 @@ void ImageDecoder::compute(holoscan::InputContext& input, holoscan::OutputContex
         // Run GPU depth → RGB colorizer
         if (align_depth_to_rgb.get()) {
             ensure_aligned_depth_buffer();
+            upload_alignment_calibration_if_dirty();
             cudaMemsetAsync(d_aligned_depth_, 0xFF, sizeof(uint32_t) * aligned_depth_elems_,
                 cuda_stream_handler_.get_cuda_stream(context.context()));
 

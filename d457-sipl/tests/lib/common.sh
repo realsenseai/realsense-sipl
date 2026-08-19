@@ -19,9 +19,38 @@ set -u
 NVSIPL_DRV=/usr/lib/nvsipl_drv
 # Private 0700 work dir. The generated query .so is sudo cp'd into the driver dir, so a shared
 # predictable path under /tmp would let any local user swap it for a symlink and get root-loaded.
-D457_TEST_DIR=${D457_TEST_DIR:-$(mktemp -d)}
-chmod 700 "$D457_TEST_DIR"
-trap 'rm -rf "${D457_TEST_DIR:-}"' EXIT
+#
+# Only a directory this file created is removed on exit. D457_TEST_DIR is an override, and the
+# unconditional `rm -rf` that used to be here meant `D457_TEST_DIR=~/work ./run_all.sh` deleted
+# ~/work when the run finished.
+if [ -n "${D457_TEST_DIR:-}" ]; then
+    D457_TEST_DIR_OWNED=0
+    mkdir -p "$D457_TEST_DIR"
+    case "$(stat -c '%a' "$D457_TEST_DIR" 2>/dev/null || echo 700)" in
+        *00) : ;;   # no group/other bits
+        *) echo "WARNING: $D457_TEST_DIR is group/world-accessible; the generated query .so is installed as root from it" >&2 ;;
+    esac
+else
+    D457_TEST_DIR=$(mktemp -d)
+    D457_TEST_DIR_OWNED=1
+    chmod 700 "$D457_TEST_DIR"
+fi
+
+# Chain onto whatever EXIT trap the sourcing script already installed: `trap ... EXIT` at source time
+# replaces it silently.
+_d457_prev_exit_trap=$(trap -p EXIT)
+_d457_cleanup() {
+    if [ "${D457_TEST_DIR_OWNED:-0}" = "1" ] && [ -n "${D457_TEST_DIR:-}" ]; then
+        rm -rf "$D457_TEST_DIR"
+    fi
+    if [ -n "${_d457_prev_exit_trap:-}" ]; then
+        # trap -p EXIT prints the handler as: trap -- <shell-quoted cmd> EXIT. Strip both ends, then
+        # eval twice -- the outer eval removes the shell quoting, the inner one runs the command.
+        _prev=${_d457_prev_exit_trap#trap -- }
+        eval "eval ${_prev% EXIT}" || true
+    fi
+}
+trap _d457_cleanup EXIT
 QRY_SRC="$D457_TEST_DIR/d457_query_gen.cpp"
 QRY_SO=$NVSIPL_DRV/libnvsipl_qry_d457.so
 RUN_LOG=/tmp/live/run.log

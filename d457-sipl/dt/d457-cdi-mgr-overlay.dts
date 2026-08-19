@@ -7,8 +7,9 @@
  * d4xx one, the d4xx camera nodes are simply never added, so there is nothing to disable and
  * `DEFAULT d4xx` remains the power-cycle auto-fallback.
  *
- * Lets `cdi_mgr.ko` instantiate `/dev/cdi-mgr.9.a` so `libnvsipl_devblk_cdi` can drive the
- * camera (see ../../.triage/FINDINGS.md "why the DT").
+ * Lets `cdi_mgr.ko` instantiate `/dev/cdi-mgr.9.a` so `libnvsipl_devblk_cdi` can drive the camera:
+ * SIPL reaches the SerDes and the DS5 through that device node, which the stock d4xx overlay does
+ * not create.
  *
  * CONFIRMED from the live d4xx DT + the Advantech d4xx overlay (dt/d4xx-camera.dts.ref):
  *   - i2c node path: /bus@0/i2c@810c6a0000  (= /dev/i2c-9)            [V1 ✓]

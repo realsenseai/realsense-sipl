@@ -118,7 +118,7 @@ private:
     void allocate_buffers(uint32_t camera_index, nvsipl::INvSIPLClient::ConsumerDesc::OutputType output_type, std::vector<NvSciBufObj>& bufs);
     void free_buffers(std::vector<NvSciBufObj>& bufs);
     void acquire_buffer_thread_func(PerCameraState* camera_state);
-    std::string stream_for_sensor(uint32_t total_sensors, uint32_t ordinal_in_module) const;
+    std::string stream_for_sensor(uint32_t total_cameras, uint32_t ordinal_in_module) const;
     void apply_link_offsets();
 
     std::string camera_config_;

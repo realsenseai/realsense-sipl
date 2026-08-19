@@ -5,7 +5,9 @@
 # ../patch_max9295_d457.py / ../patch_max96712_d457.py, but they are still NVIDIA's code: only our
 # diff is kept here, never the files themselves, so nothing NVIDIA-licensed is redistributed.
 #
-# Idempotent: a tree that is already patched is detected and left alone.
+# Idempotent: a tree that is already patched is detected and left alone. All-or-nothing: every patch
+# is dry-run first, and if any one does not fit, nothing is modified. The first apply leaves a
+# one-time <file>.orig next to each patched file.
 #
 # USAGE
 #   ./apply.sh [SIPL_ROOT]        # default /usr/src/jetson_sipl_api/sipl
@@ -26,7 +28,10 @@ MAP=(
   "MAX967XXHsl.py:uddf/drivers/deserializers/MAX967XX/MAX967XXHsl.py"
 )
 
-rc=0
+# Classify every patch before touching anything: "refuses to half-apply" has to mean that a tree the
+# patches do not fit is left exactly as it was, not left half-modified with rc=1.
+declare -a TO_APPLY=()
+fatal=0
 for entry in "${MAP[@]}"; do
     name="${entry%%:*}"; rel="${entry#*:}"
     patch_file="$HERE/$name.patch"
@@ -36,7 +41,7 @@ for entry in "${MAP[@]}"; do
 
     if [ "$REVERT" = "1" ]; then
         if patch -R --dry-run -p1 -f "$target" < "$patch_file" >/dev/null 2>&1; then
-            patch -R -p1 -s "$target" < "$patch_file" && echo "  reverted  $rel"
+            TO_APPLY+=("$entry")
         else
             echo "  not applied, skipping  $rel"
         fi
@@ -46,10 +51,33 @@ for entry in "${MAP[@]}"; do
     if patch -R --dry-run -p1 -f "$target" < "$patch_file" >/dev/null 2>&1; then
         echo "  already patched  $rel"
     elif patch --dry-run -p1 -f "$target" < "$patch_file" >/dev/null 2>&1; then
-        patch -p1 -s "$target" < "$patch_file" && echo "  patched  $rel"
+        TO_APPLY+=("$entry")
     else
-        echo "  FAILED to apply  $rel (SDK version mismatch?)" >&2
-        rc=1
+        echo "  WILL NOT APPLY  $rel (SDK version mismatch?)" >&2
+        fatal=1
     fi
 done
-exit $rc
+
+if [ "$fatal" = "1" ]; then
+    echo "FATAL: at least one patch does not fit $SIPL; nothing was modified" >&2
+    exit 1
+fi
+
+for entry in "${TO_APPLY[@]+"${TO_APPLY[@]}"}"; do
+    name="${entry%%:*}"; rel="${entry#*:}"
+    patch_file="$HERE/$name.patch"
+    target="$SIPL/$rel"
+    if [ "$REVERT" = "1" ]; then
+        patch -R -p1 -s "$target" < "$patch_file"
+        echo "  reverted  $rel"
+        continue
+    fi
+    # Keep a one-time .orig, so a later SDK upgrade that breaks the patch still has something to
+    # restore from. -b would overwrite an existing .orig, so only pass it the first time.
+    if [ -f "$target.orig" ]; then
+        patch -p1 -s "$target" < "$patch_file"
+    else
+        patch -p1 -s -b --suffix=.orig "$target" < "$patch_file"
+    fi
+    echo "  patched  $rel"
+done

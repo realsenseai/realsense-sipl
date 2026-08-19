@@ -99,7 +99,7 @@ power-cycle, capture, and an MJPEG server with an FPS/resolution overlay:
 ```bash
 sudo sh $HOME/d457_live.sh rgb 8080      # stream = rgb|ir|depth, port = 8080
 # from your PC:
-ssh -L 8080:localhost:8080 mic-742@<rig>         # then open http://localhost:8080/
+ssh -L 8080:localhost:8080 "$RIG_USER@$RIG_HOST"  # then open http://localhost:8080/
 # Ctrl-C in the rig shell stops capture + unmounts.
 ```
 
@@ -209,7 +209,7 @@ dmesg -w                                # CSI/VI (kernel)
 
 | Item | Value |
 |------|-------|
-| Rig | `fw-advantech-thor-1` (MIC-742, Thor, L4T r39.2), `mic-742`/`mic-742` |
+| Rig | `fw-advantech-thor-1` (MIC-742, Thor, L4T r39.2) — tooling default, override with `RIG_HOST`/`RIG_USER`/`RIG_KEY` |
 | Config name | `D457_Camera` (with `-H`) |
 | Stream select | `D457_STREAM=depth\|rgb\|ir` (env, default depth) |
 | Link mask | `-m 0x0001` (link 0) |

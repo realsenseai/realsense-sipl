@@ -1,7 +1,7 @@
 #!/bin/sh
 # Live D457 viewer over SSH. Usage:  sudo sh $HOME/d457_live.sh [rgb|ir|depth] [port]
 # Streams MJPEG (with FPS + resolution overlay) on :PORT. From your PC:
-#   ssh -L 8080:localhost:8080 mic-742@<rig>   then open  http://localhost:8080/
+#   ssh -L 8080:localhost:8080 <user>@<rig>   then open  http://localhost:8080/
 # Ctrl-C here to stop (kills capture, unmounts ramdisk).
 VIEW=${1:-rgb}
 PORT=${2:-8080}
@@ -45,7 +45,7 @@ env D457_STREAM="$VIEW" \
     -r "$RUNFOR" -W 1000000000 >/dev/null 2>&1 &
 sleep 4
 
-echo ">> live MJPEG on http://<rig>:$PORT/   (or via:  ssh -L $PORT:localhost:$PORT mic-742@<rig>)"
+echo ">> live MJPEG on http://<rig>:$PORT/   (or via:  ssh -L $PORT:localhost:$PORT <user>@<rig>)"
 echo ">> Ctrl-C to stop."
 D457_VIEW="$VIEW" D457_PORT="$PORT" D457_DIR="$DIR" python3 $HOME/d457_mjpeg.py &
 SRVPID=$!

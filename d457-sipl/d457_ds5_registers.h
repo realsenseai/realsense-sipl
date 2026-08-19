@@ -103,8 +103,8 @@
  * DS5 MIPI output (DS5 -> MAX9295): 2 lanes, 1000 Mbps/lane (d4xx MIPI_LANE_RATE). Programs the
  * DS5-side link only -- it stays 2-lane in the 4-lane config, exactly like d4xx's hybrid topology
  * (camera->serializer 2-lane, deserializer->Jetson 4-lane). The SoC CSI lane count / D-PHY rate
- * (4 lanes / 2500000) lives in the SIPL query's mipiSettings + the deser HSL's
- * seq_set_mipi_d_phy (see ../.triage/FINDINGS.md). */
+ * (4 lanes / 2500000) lives in the SIPL query's mipiSettings + the deser HSL's seq_set_mipi_d_phy;
+ * the three have to agree or every frame is truncated. */
 #define D457_REG_MIPI_LANES          0x0400
 #define D457_VAL_MIPI_2LANE          0x0001
 #define D457_REG_MIPI_RATE           0x0402

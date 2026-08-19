@@ -5,8 +5,9 @@ evidence is spread across **seven layers**. This guide walks them top-to-bottom,
 commands to pull each log — including the **RTCPU / Camera-RCE firmware trace**, which is where the
 NVCSI/VI capture faults actually decode — and a symptom→layer matrix at the end.
 
-Rig: **`fw-advantech-thor-1`** (MIC-742, Jetson Thor, L4T r39.2, kernel 6.8.12-tegra),
-`mic-742`/`mic-742`. GMSL chain: D457 (DS5 + OV9282) → MAX9295A → MAX96712 → Thor CSI-A, I2C bus 9.
+Rig: **`fw-advantech-thor-1`** (MIC-742, Jetson Thor, L4T r39.2, kernel 6.8.12-tegra) — the
+default in the rig tooling; point `RIG_HOST`/`RIG_USER`/`RIG_KEY` at your own.
+GMSL chain: D457 (DS5 + OV9282) → MAX9295A → MAX96712 → Thor CSI-A, I2C bus 9.
 
 > ⚠️ The tracefs/debugfs **paths and event names below are the canonical Jetson set and vary by L4T
 > version.** Where a path is uncertain it's marked `(verify on rig)`. Use the discovery commands in

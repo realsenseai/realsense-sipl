@@ -36,8 +36,10 @@ namespace hololink::core {
 
 size_t round_up(size_t value, size_t alignment)
 {
-    // This only works when alignment is a power of two.
-    if (alignment & (alignment - 1)) {
+    // This only works when alignment is a power of two. Zero has to be rejected explicitly:
+    // 0 & -1 is 0, so it slips past the power-of-two test and the mask below returns 0.
+    // See issue #3 -- this fork and the vendored HSB copy still accept different alignments.
+    if ((alignment == 0) || (alignment & (alignment - 1))) {
         throw std::runtime_error(fmt::format("round_up called with an invalid alignment={:#x}; it must be a power of two.", alignment));
     }
     return (value + alignment - 1) & ~(alignment - 1);
