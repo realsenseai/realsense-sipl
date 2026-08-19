@@ -87,11 +87,16 @@ notice would have dropped the attribution Apache-2.0 §4(c) requires be retained
 `d457_sipl_fmt.hpp` is the same formatter with four extra `FMT()` entries, so it carries both
 notices — NVIDIA's for the copied block, RealSense's for the addition.
 
-⚠ **This is not the whole set, and an earlier version of this section wrongly said it was.** That
-claim came from an audit that only compared each file against a byte-identical or same-named
-upstream twin, which by construction can only find verbatim copies — Apache-2.0 §4(c) covers
-derivative works too. Re-run against all 363 upstream files with no name assumption, **15 files
-under `*/hsb/` carry a RealSense-only notice while sharing 45–95% of their substantive lines with an
-upstream file**, `d555_sipl_player.cpp` (95%), `d555_sipl_capture.hpp` (94%) and
-`d555_sipl_capture.cpp` (87%) among them. They need the same treatment as `d457_sipl_fmt.hpp`:
-NVIDIA's notice retained, RealSense's added. Tracked in #6.
+An earlier version of this section said those two were the only such files. That was wrong, and the
+audit behind it could not have found the others: it compared each file against a byte-identical body
+and then against a **same-named** upstream twin, so anything derived from a differently-named
+upstream file — `linux_coe_d555_dual_stream.py` from `linux_coe_stereo_vb1940_player.py`, say — could
+never match, while Apache-2.0 §4(c) covers derivative works too.
+
+Re-run against all 363 upstream files with no name assumption, **18 files needed the upstream notice
+restored and now carry it**, RealSense's added below NVIDIA's, with each NVIDIA line taken verbatim
+from that file's own ancestor. They ranged from `d555_sipl_player.cpp` at 95% shared substantive
+lines down to two files in the low 30s that were included on judgement rather than the threshold —
+the `image_decoder` operator, whose overlap with `csi_to_bayer` includes HSB-specific members rather
+than framework scaffolding. Six files remain RealSense-only, measured at 0–27%, which is correct for
+them. Closed as #6; the numbers and the method are recorded there.
