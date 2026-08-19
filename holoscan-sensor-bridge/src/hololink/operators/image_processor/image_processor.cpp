@@ -282,6 +282,10 @@ void ImageProcessorOp::start()
         // data is stored in the upper 12 bits of a 16 bit value
         least_significant_bit = 16 - 12;
         break;
+    case hololink::csi::PixelFormat::RAW_16:
+        // data is stored in all 16 bits
+        least_significant_bit = 0;
+        break;
     default:
         throw std::runtime_error(fmt::format("Camera pixel format {} not supported.", int(pixel_format_.get())));
     }

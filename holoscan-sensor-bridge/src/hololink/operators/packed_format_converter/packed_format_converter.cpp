@@ -17,6 +17,8 @@
 
 #include "packed_format_converter.hpp"
 
+#include <cuda_runtime.h>
+
 #include <hololink/common/cuda_helper.hpp>
 #include <hololink/core/logging_internal.hpp>
 #include <hololink/core/networking.hpp>
@@ -198,6 +200,19 @@ void PackedFormatConverterOp::compute(holoscan::InputContext& input, holoscan::O
             input_tensor->pointer() + start_byte_,
             bytes_per_line_, pixel_width_, pixel_height_);
         break;
+    case hololink::csi::PixelFormat::RAW_16: {
+        // Already 16 bits/pixel (e.g. D555 depth Z16), so there is nothing to unpack -- just a
+        // strided copy that drops any per-line padding.
+        const size_t row_bytes = static_cast<size_t>(pixel_width_) * 2u;
+        const cudaError_t err = cudaMemcpy2DAsync(tensor.value()->pointer(), row_bytes,
+            input_tensor->pointer() + start_byte_, bytes_per_line_,
+            row_bytes, pixel_height_, cudaMemcpyDeviceToDevice, cuda_stream);
+        if (err != cudaSuccess) {
+            throw std::runtime_error(
+                fmt::format("RAW_16 cudaMemcpy2DAsync failed: {}", cudaGetErrorString(err)));
+        }
+        break;
+    }
     default:
         throw std::runtime_error("Unsupported bits per pixel value");
     }

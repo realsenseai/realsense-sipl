@@ -53,6 +53,11 @@ build time (see the repository README). What remains here beyond upstream is sha
 infrastructure only — docker, core `data_channel`/`csi_formats`, the receiver operators and
 `fusa_coe_capture`.
 
+Beyond those commits, two shared operators gained **RAW_16 support**, which upstream 2.5.0 does not
+implement: `image_processor` (treat all 16 bits as data) and `packed_format_converter` (a strided
+copy, since 16 bpp needs no unpacking). Both are generic pixel-format additions rather than
+camera-specific code, and the D555 depth/RGB CoE path does not stream without them.
+
 ## Note on binary assets
 
 Upstream tracks `docs/` images with Git LFS. In this snapshot those files are stored

@@ -270,8 +270,20 @@ struct fmt::formatter<NvSciBufAttrValColorFmt> : fmt::formatter<fmt::string_view
             FMT(X2Rc10Rb10Ra10_Bayer10BGGR)
             FMT(X2Rc10Rb10Ra10_Bayer10GRBG)
             FMT(X2Rc10Rb10Ra10_Bayer10GBRG)
+            FMT(Bayer8RGGB)
+            FMT(Bayer8BGGR)
+            FMT(Bayer8GRBG)
+            FMT(Bayer8GBRG)
+            FMT(Bayer8CCCC)
+            FMT(Bayer16RGGB)
+            FMT(Bayer16BGGR)
+            FMT(Bayer16GRBG)
+            FMT(Bayer16GBRG)
+            FMT(Bayer16CCCC)
         default:
-            throw std::runtime_error(fmt::format("Unknown format ({})", static_cast<int>(nvsci_fmt)));
+            // A format this table does not name is not a reason to abort a capture -- this is a
+            // logging formatter. Bayer16CCCC (8) is what the D555 depth stream reports.
+            return fmt::format_to(ctx.out(), "NvSciColor_unknown_{}", static_cast<int>(nvsci_fmt));
         }
     }
 };
