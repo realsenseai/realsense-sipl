@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <vector>
 
 #include <hololink/core/csi_controller.hpp>
@@ -121,6 +122,9 @@ private:
     // Pending buffer map is static since the callback only provides the buffer pointer.
     static std::map<void*, nvsipl::INvSIPLClient::INvSIPLBuffer*> pending_buffers_;
     static std::mutex pending_buffers_mutex_;
+    // Signalled by buffer_release_callback so stop() can wait for wrapped outputs still held
+    // downstream before it frees the mappings and buffers those outputs point at.
+    static std::condition_variable pending_buffer_released_;
 };
 
 } // namespace holoscan::ops

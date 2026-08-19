@@ -53,6 +53,31 @@ def _write_atomic(path, text):
     os.replace(tmp, path)
 
 
+
+
+# Two-phase apply. Every patch function VALIDATES and computes its new text, staging it here; nothing
+# reaches the SDK tree until all of them have succeeded. Writing as we went meant an early file was
+# already modified when a later anchor failed to match, and build_deploy.sh runs these automatically,
+# so the next build consumed a half-patched tree. Reads go through _read() so a second patch to the
+# same file sees the staged text rather than the pristine one on disk.
+_PENDING = {}
+
+
+def _read(path):
+    if path in _PENDING:
+        return _PENDING[path]
+    with io.open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _stage(path, text):
+    _PENDING[path] = text
+
+
+def _flush():
+    for path, text in _PENDING.items():
+        _write_atomic(path, text)
+    return len(_PENDING)
 SIPL_ROOT = sys.argv[1] if len(sys.argv) > 1 else \
     os.path.expanduser("~/sipl_full/usr/src/jetson_sipl_api/sipl")
 BASE = os.path.join(SIPL_ROOT, "uddf/drivers/serializers/MAX9295")
@@ -168,39 +193,45 @@ NEW_ELSE = '''    else if (m_config.numSensors == 1) {
 
 
 def patch_py():
-    with io.open(PY, encoding="utf-8") as f:
-        py = f.read()
+    py = _read(PY)
     if "seq_set_ser_video_phy_clock_max9295a" in py:
         return "PY: already patched"
     marker = "    def compile(self):"
-    assert marker in py, "compile() not found in MAX9295Hsl.py"
+    # Returned, not asserted: `python -O` strips assert, and a stripped check here silently wrote an
+    # UNPATCHED file back while still reporting "patched". main() treats anything that is not
+    # patched/already patched/not applicable as a failure.
+    if marker not in py:
+        return "PY: compile() NOT FOUND in MAX9295Hsl.py"
     py = py.replace(marker, NEW_SEQ + marker, 1)
     call = "        self.seq_set_external_fsync_max9295a()\n"
-    assert call in py, "external_fsync_max9295a call not found in compile()"
+    if call not in py:
+        return "PY: external_fsync_max9295a call NOT FOUND in compile()"
     py = py.replace(call, call + "        self.seq_set_ser_video_phy_clock_max9295a()\n", 1)
-    _write_atomic(PY, py)
+    _stage(PY, py)
     return "PY: patched"
 
 
 def patch_cpp():
-    with io.open(CPP, encoding="utf-8") as f:
-        cpp = f.read()
+    cpp = _read(CPP)
     if "set_ser_video_phy_clock_max9295a" in cpp:
         return "CPP: already patched"
-    assert OLD_ELSE in cpp, "SerInit else-block not found verbatim in MAX9295.cpp"
+    if OLD_ELSE not in cpp:
+        return "CPP: SerInit else-block NOT FOUND verbatim in MAX9295.cpp"
     cpp = cpp.replace(OLD_ELSE, NEW_ELSE, 1)
-    _write_atomic(CPP, cpp)
+    _stage(CPP, cpp)
     return "CPP: patched"
 
 
 if __name__ == "__main__":
-    # See patch_max96712_d457.py: a non-applying patch must fail the build, not print and exit 0.
+    # Every patch validates and stages first; nothing is written unless all of them succeeded. A
+    # non-applying patch must fail the build (not print and exit 0) AND leave the SDK untouched.
     results = [patch_py(), patch_cpp()]
     ok = (": patched", ": already patched", ": not applicable")
     failed = [r for r in results if not any(m in r for m in ok)]
     for r in results:
         print(r)
     if failed:
-        print("FAILED: " + "; ".join(failed), file=sys.stderr)
+        print("FAILED: " + "; ".join(failed) + " -- nothing was written", file=sys.stderr)
         sys.exit(1)
+    _flush()
     print("DONE")

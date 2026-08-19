@@ -61,6 +61,31 @@ def _write_atomic(path, text):
     os.replace(tmp, path)
 
 
+
+
+# Two-phase apply. Every patch function VALIDATES and computes its new text, staging it here; nothing
+# reaches the SDK tree until all of them have succeeded. Writing as we went meant an early file was
+# already modified when a later anchor failed to match, and build_deploy.sh runs these automatically,
+# so the next build consumed a half-patched tree. Reads go through _read() so a second patch to the
+# same file sees the staged text rather than the pristine one on disk.
+_PENDING = {}
+
+
+def _read(path):
+    if path in _PENDING:
+        return _PENDING[path]
+    with io.open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _stage(path, text):
+    _PENDING[path] = text
+
+
+def _flush():
+    for path, text in _PENDING.items():
+        _write_atomic(path, text)
+    return len(_PENDING)
 SIPL_ROOT = sys.argv[1] if len(sys.argv) > 1 else \
     os.path.expanduser("~/sipl_full/usr/src/jetson_sipl_api/sipl")
 HSL_4X2 = os.path.join(SIPL_ROOT, "uddf/drivers/deserializers/MAX96712/MAX96712Hsl.py")
@@ -84,8 +109,7 @@ NEW_4X2_BODY = '''    def seq_set_mipi_d_phy_4x2(self):
 '''
 
 def patch_4x2():
-    with io.open(HSL_4X2, encoding="utf-8") as f:
-        s = f.read()
+    s = _read(HSL_4X2)
     if "write(0x094A, 0xD0)" in s:   # 4-lane marker: the old 2-lane body shared the annotate text
         return "4x2: already patched"
     # Replace the whole seq_set_mipi_d_phy_4x2 function body (up to the next 'def ')
@@ -93,12 +117,11 @@ def patch_4x2():
     if not pat.search(s):
         return "4x2: FUNCTION NOT FOUND"
     s = pat.sub(NEW_4X2_BODY.rstrip("\n") + "\n", s, count=1)
-    _write_atomic(HSL_4X2, s)
+    _stage(HSL_4X2, s)
     return "4x2: patched"
 
 def patch_pll():
-    with io.open(HSL_PLL, encoding="utf-8") as f:
-        s = f.read()
+    s = _read(HSL_PLL)
     old = "        with Sequence('check_csi_pll_lock_4x2'):\n            annotate('Check CSI PLL Lock 4x2')\n            with self.max967xx:\n                poll(0x0400, 0xF0, 0xF0, 10000, 20)"
     new = "        with Sequence('check_csi_pll_lock_4x2'):\n            annotate('Check CSI PLL Lock 4x2 (D457: only PHY1 PLL locks once PHY2/3 disabled -> bit5)')\n            with self.max967xx:\n                poll(0x0400, 0x20, 0x20, 10000, 20)"
     if "poll(0x0400, 0x20, 0x20" in s:
@@ -106,7 +129,7 @@ def patch_pll():
     if old not in s:
         return "PLL: PATTERN NOT FOUND"
     s = s.replace(old, new, 1)
-    _write_atomic(HSL_PLL, s)
+    _stage(HSL_PLL, s)
     return "PLL: patched"
 
 OLD_MAP = '''                write(0x090B, 0x07)
@@ -206,8 +229,7 @@ NEW_MAP = '''                write(0x090B, 0x0F)
                 write(0x00F1, 0xE2)'''
 
 def patch_mapping():
-    with io.open(HSL_PLL, encoding="utf-8") as f:
-        s = f.read()
+    s = _read(HSL_PLL)
     # The multi-camera HSL (multicam-patches/MAX967XXHsl.py.patch) generates the pixel map from
     # D457_MAP_LINKS/D457_MAP_STREAMS at PyHSL compile time, so this static single-camera mapping
     # has nothing to do there. Report that rather than failing the build.
@@ -221,7 +243,7 @@ def patch_mapping():
         # left the single-camera build with an unpatched pixel map.
         return "MAP: PATTERN NOT FOUND"
     s = s.replace(OLD_MAP, NEW_MAP, 1)
-    _write_atomic(HSL_PLL, s)
+    _stage(HSL_PLL, s)
     return "MAP: patched (pipe-per-VC: pipe0=depth VC0, pipe1=RGB VC1 + VIDEO_RX0=0x23, d4xx-exact)"
 
 # --- Force the SINGLE-sensor pipeline-mapping path even for the 2-sensor (depth+RGB) config ---
@@ -242,26 +264,28 @@ NEW_DUALCFG = '''    // D457: one DS5 ASIC emits depth(VC0)+RGB(VC1) on ONE GMSL
     return false;'''
 
 def patch_force_single():
-    with io.open(CPP_967XX, encoding="utf-8") as f:
-        s = f.read()
+    s = _read(CPP_967XX)
     if "D457: one DS5 ASIC emits depth(VC0)+RGB(VC1) on ONE GMSL stream" in s:
         return "FORCE-SINGLE: already patched"
     if s.count(OLD_DUALCFG) != 1:
         return "FORCE-SINGLE: anchor count %d (expected 1) — NOT patched" % s.count(OLD_DUALCFG)
     s = s.replace(OLD_DUALCFG, NEW_DUALCFG, 1)
-    _write_atomic(CPP_967XX, s)
+    _stage(CPP_967XX, s)
     return "FORCE-SINGLE: patched IsDualSensorConfig->false"
 
 if __name__ == "__main__":
     # Anything other than "patched" / "already patched" means the SDK did not match what we expect.
     # These used to print and exit 0, so build_deploy.sh (set -e) carried on and installed a
-    # half-patched driver while reporting success.
+    # half-patched driver while reporting success. Now every patch validates and stages its new text
+    # first, and _flush() writes the whole set only if none of them failed -- so a later mismatch
+    # leaves the SDK exactly as it was rather than partly modified.
     results = [patch_4x2(), patch_pll(), patch_mapping(), patch_force_single()]
     ok = (": patched", ": already patched", ": not applicable")
     failed = [r for r in results if not any(m in r for m in ok)]
     for r in results:
         print(r)
     if failed:
-        print("FAILED: " + "; ".join(failed), file=sys.stderr)
+        print("FAILED: " + "; ".join(failed) + " -- nothing was written", file=sys.stderr)
         sys.exit(1)
+    _flush()
     print("DONE")

@@ -18,12 +18,14 @@
 #include "d555_sipl_capture.hpp"
 #include "d555_sipl_fmt.hpp"
 
+#include <chrono>
 #include <cuda.h>
 
 namespace hololink::operators {
 
 std::map<void*, nvsipl::INvSIPLClient::INvSIPLBuffer*> D555SIPLCaptureOp::pending_buffers_;
 std::mutex D555SIPLCaptureOp::pending_buffers_mutex_;
+std::condition_variable D555SIPLCaptureOp::pending_buffer_released_;
     
 void D555SIPLCaptureOp::setup(holoscan::OperatorSpec& spec)
 {
@@ -41,14 +43,26 @@ void D555SIPLCaptureOp::setup(holoscan::OperatorSpec& spec)
 
 nvidia::gxf::Expected<void> D555SIPLCaptureOp::buffer_release_callback(void* pointer)
 {
-    std::lock_guard<std::mutex> lock(pending_buffers_mutex_);
-    auto status = pending_buffers_[pointer]->Release();
-    if (status != nvsipl::NVSIPL_STATUS_OK) {
-        HSB_LOG_ERROR("Failed to release buffer {}", (void*)pending_buffers_[pointer]);
-    } else {
-        HSB_LOG_TRACE("Released buffer {}", (void*)pending_buffers_[pointer]);
+    {
+        std::lock_guard<std::mutex> lock(pending_buffers_mutex_);
+        // find() rather than operator[]: an unknown pointer used to default-construct a null entry
+        // and then dereference it.
+        auto it = pending_buffers_.find(pointer);
+        if (it == pending_buffers_.end()) {
+            HSB_LOG_ERROR("Release callback for an unknown buffer {}", pointer);
+            return nvidia::gxf::Expected<void>();
+        }
+        auto* buffer = it->second;
+        auto status = buffer->Release();
+        if (status != nvsipl::NVSIPL_STATUS_OK) {
+            HSB_LOG_ERROR("Failed to release buffer {}", (void*)buffer);
+        } else {
+            HSB_LOG_TRACE("Released buffer {}", (void*)buffer);
+        }
+        pending_buffers_.erase(it);
     }
-    pending_buffers_.erase(pointer);
+    // stop() waits on this before freeing the CUDA mappings and NvSci buffers.
+    pending_buffer_released_.notify_all();
     return nvidia::gxf::Expected<void>();
 }
 
@@ -373,8 +387,12 @@ void D555SIPLCaptureOp::allocate_buffers(uint32_t camera_index, nvsipl::INvSIPLC
     // Get the attributes provided by the camera.
     const auto sensor_id = sipl_config_.cameras[camera_index].sensorInfo.id;
     auto status = sipl_camera_->GetImageAttributes(sensor_id, output_type, *(attr_list.get()));
-    if (err != NvSciError_Success) {
-        throw std::runtime_error("Failed to get image attributes");
+    if (status != nvsipl::NVSIPL_STATUS_OK) {
+        // Was `err`, the stale NvSci status from the SetAttrs above -- guaranteed Success here, so a
+        // real attribute-query failure fell through and the buffers below were reconciled from an
+        // unpopulated attribute list. The other GetImageAttributes call site checks `status`.
+        throw std::runtime_error(fmt::format("Failed to get image attributes ({})",
+            static_cast<int>(status)));
     }
 
     // Reconcile the attributes.
@@ -541,6 +559,24 @@ void D555SIPLCaptureOp::stop()
 {
     // Stop streaming.
     sipl_camera_->Stop();
+
+    // Wait for any wrapped output still held downstream to be released before the mappings and
+    // buffers it points at are freed below. Without this, a downstream component that retains an
+    // output entity past shutdown has buffer_release_callback() Release() a buffer belonging to a
+    // destroyed SIPL instance. Mirrors upstream sipl_capture::stop(); 30 x 100 ms, same as upstream.
+    {
+        uint32_t wait_limit = 30;
+        std::unique_lock<std::mutex> pending_buffer_lock(pending_buffers_mutex_);
+        while (!pending_buffers_.empty()) {
+            if (pending_buffer_released_.wait_for(pending_buffer_lock, std::chrono::milliseconds(100))
+                    == std::cv_status::timeout
+                && (--wait_limit == 0)) {
+                HSB_LOG_ERROR("Failed to wait for {} pending buffer(s) to be released",
+                    pending_buffers_.size());
+                break;
+            }
+        }
+    }
 
     // Clear CUDA mappings.
     for (auto mapping : cuda_mappings_) {

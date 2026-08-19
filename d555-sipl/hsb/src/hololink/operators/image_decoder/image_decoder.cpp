@@ -345,12 +345,21 @@ void ImageDecoder::upload_alignment_calibration_if_dirty() {
     alignment_calibration_dirty_ = false;
 }
 
-// d_aligned_depth_ holds depth reprojected into the RGB frame, but every kernel that touches it is
-// launched with, and indexed by, the DEPTH dims (width_, height_) -- see compute(). It was
-// previously allocated in start() from h_rgb_intrin_, which overflows whenever the RGB frame is
-// smaller than the depth frame, and degenerates to cudaMalloc(0) when the app enables alignment
-// without calling set_rgb_intrinsics(). Size it from the dims actually in use, at first use, when
-// configure() has run and the intrinsics are known.
+// d_aligned_depth_ holds depth reprojected into the RGB frame. Which dims size it is subtler than it
+// looks, and an earlier round of review got this wrong in BOTH directions:
+//
+//   - projectDepthToRGB() is LAUNCHED over the depth dims and READS raw_depth[dy * width + dx] in
+//     depth coordinates -- but it WRITES aligned_depth[ry_pixel * rgb_intr->width + rx_pixel], i.e.
+//     in RGB coordinates, bounded by rgb_intr->width/height. So the allocation must come from the
+//     RGB intrinsics. Sizing it from the depth dims (as the previous round did, reasoning from the
+//     launch dims) writes past the allocation whenever the RGB frame is the larger of the two.
+//   - colorizeDepth() then READS this buffer at y * width_ + x, with the DEPTH width, and writes a
+//     depth-dimensioned output tensor. So the two kernels only agree when the RGB and depth frames
+//     have the same dimensions.
+//
+// Until the aligned path treats the RGB frame as the target throughout (issue #5), require the two
+// to match and say so loudly, rather than silently reading the wrong grid. The validated D555
+// configuration runs both at 1280x720, so it is unaffected.
 void ImageDecoder::ensure_aligned_depth_buffer() {
     if (h_rgb_intrin_.width <= 0 || h_rgb_intrin_.height <= 0) {
         throw std::runtime_error(
@@ -360,7 +369,15 @@ void ImageDecoder::ensure_aligned_depth_buffer() {
     if (width_ == 0 || height_ == 0) {
         throw std::runtime_error("align_depth_to_rgb is enabled but configure() has not run");
     }
-    const size_t elems = static_cast<size_t>(width_) * static_cast<size_t>(height_);
+    if (h_rgb_intrin_.width != static_cast<int>(width_)
+        || h_rgb_intrin_.height != static_cast<int>(height_)) {
+        throw std::runtime_error(fmt::format(
+            "align_depth_to_rgb currently requires matching depth and RGB dimensions (issue #5): "
+            "depth is {}x{}, the RGB intrinsics say {}x{}",
+            width_, height_, h_rgb_intrin_.width, h_rgb_intrin_.height));
+    }
+    // Sized from the RGB intrinsics: those are the coordinates projectDepthToRGB() writes.
+    const size_t elems = static_cast<size_t>(h_rgb_intrin_.width) * static_cast<size_t>(h_rgb_intrin_.height);
     if (d_aligned_depth_ != nullptr && aligned_depth_elems_ == elems) {
         return;
     }

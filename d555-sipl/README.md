@@ -80,3 +80,11 @@ division, while this fork requires a power of two and throws otherwise. Unifying
 alongside; the code is RealSense-authored (it shares 17 lines with NVIDIA's `SampleHsbDriver.cpp`)
 and the header was corrected to match. `hololink/core/` keeps its NVIDIA Apache-2.0 headers, which
 Apache-2.0 requires be retained; `fmt/` keeps its MIT notice.
+
+`hsb/src/hololink/operators/d555_sipl_capture/d555_sipl_fmt.hpp` keeps **NVIDIA's** notice and
+nothing else: it is a byte-for-byte copy of upstream's `sipl_capture/sipl_fmt.hpp`, so replacing the
+notice would have dropped the attribution Apache-2.0 §4(c) requires be retained. The D457 side's
+`d457_sipl_fmt.hpp` is the same formatter with four extra `FMT()` entries, so it carries both
+notices — NVIDIA's for the copied block, RealSense's for the addition. Both were caught by a
+follow-up audit that compared every RealSense-headered file under `*/hsb/` against its upstream
+body; those two were the only cases.

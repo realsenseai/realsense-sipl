@@ -108,14 +108,18 @@ class HoloscanApplication(holoscan.core.Application):
         )
         self._camera_stream_rgb.configure_converter(image_decoder_stream2)
 
-        frame_size = image_decoder_stream1.get_csi_length()
+        # One frame_size per stream. --camera-mode-depth and --camera-mode-rgb are independent, so
+        # sizing both receivers from stream1 handed the second receiver the first stream's frame
+        # length: undersized, and it drops packets past that limit. Equal only by default.
+        frame_size_stream1 = image_decoder_stream1.get_csi_length()
+        frame_size_stream2 = image_decoder_stream2.get_csi_length()
         frame_context = self._cuda_context
 
         receiver_operator_stream1 = hololink_module.operators.LinuxCoeReceiverOp(
             self,
             condition_stream1,
             name="receiver_stream1",
-            frame_size=frame_size,
+            frame_size=frame_size_stream1,
             frame_context=frame_context,
             hololink_channel=self._hololink_channel_stream_depth,
             device=self._camera_stream_depth,
@@ -128,7 +132,7 @@ class HoloscanApplication(holoscan.core.Application):
             self,
             condition_stream2,
             name="receiver_stream2",
-            frame_size=frame_size,
+            frame_size=frame_size_stream2,
             frame_context=frame_context,
             hololink_channel=self._hololink_channel_stream_rgb,
             device=self._camera_stream_rgb,

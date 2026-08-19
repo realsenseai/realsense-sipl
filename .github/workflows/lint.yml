@@ -3,6 +3,9 @@ name: lint
 # d457-sipl and d555-sipl are aarch64 Jetson targets and cannot be compiled here, so this gates the
 # shell and Python -- which is where most review findings have landed -- plus a credential gate.
 # The vendored holoscan-sensor-bridge/ tree is upstream NVIDIA code and is excluded throughout.
+#
+# No job here pushes, so every checkout sets persist-credentials: false and keeps GITHUB_TOKEN out
+# of .git/config.
 
 on:
   pull_request:
@@ -14,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Lint project shell scripts
@@ -27,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: bash -n every script
         run: |
           rc=0
@@ -39,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -61,6 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: No hardcoded rig credentials
         run: |
           # The rig sudo/VNC password has been committed before; keep it out.
@@ -89,6 +100,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: No NVIDIA-proprietary sources committed
         run: |
           # NVIDIA SDK code is carried as patches, never as files. See

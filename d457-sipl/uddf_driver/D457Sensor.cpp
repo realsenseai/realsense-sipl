@@ -341,11 +341,20 @@ bool D457Sensor::StartStreaming(const GmslModuleContext& context)
     UDDF_LOG_INFO(*context.driverServices,
                   "D457[%u] StartStreaming: link%u DS5@0x%02x programming %zu stream(s) (numSensors=%u)",
                   m_deviceIndex, m_link, m_i2cAddr, m_streamCfgs.size(), m_numSensors);
-    // Stop any prior streams first (realsense start() does this), then play each.
+    // Stop any prior streams first (realsense start() does this), then play each. A failure here is
+    // logged, not fatal: on a cold start nothing is streaming and the DS5 may well reject a stop for
+    // an idle stream, so making it fatal would break the normal path. It must not pass silently
+    // either -- if a stop really did fail, the play below reprograms a sensor whose old mode may
+    // still be active. These are fire-and-forget by design (pollStatus=false): reading DS5 status
+    // back here disrupts a running RGB stream, per the note below.
     for (const auto& cfg : m_streamCfgs) {
         size_t sn = 0;
         const d457_reg_t* stop = StopTableForStream(cfg.stream, sn);
-        RunRegTable(context, stop, sn, /*pollStatus=*/false);
+        if (!RunRegTable(context, stop, sn, /*pollStatus=*/false)) {
+            UDDF_LOG_WARNING(*context.driverServices,
+                          "D457[%u] StartStreaming: stop of a prior stream failed; continuing",
+                          m_deviceIndex);
+        }
     }
     d457_reg_t modebuf[D457_MODE_TABLE_MAX_ENTRIES];
     bool ok = true;
