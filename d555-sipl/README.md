@@ -85,6 +85,13 @@ Apache-2.0 requires be retained; `fmt/` keeps its MIT notice.
 nothing else: it is a byte-for-byte copy of upstream's `sipl_capture/sipl_fmt.hpp`, so replacing the
 notice would have dropped the attribution Apache-2.0 §4(c) requires be retained. The D457 side's
 `d457_sipl_fmt.hpp` is the same formatter with four extra `FMT()` entries, so it carries both
-notices — NVIDIA's for the copied block, RealSense's for the addition. Both were caught by a
-follow-up audit that compared every RealSense-headered file under `*/hsb/` against its upstream
-body; those two were the only cases.
+notices — NVIDIA's for the copied block, RealSense's for the addition.
+
+⚠ **This is not the whole set, and an earlier version of this section wrongly said it was.** That
+claim came from an audit that only compared each file against a byte-identical or same-named
+upstream twin, which by construction can only find verbatim copies — Apache-2.0 §4(c) covers
+derivative works too. Re-run against all 363 upstream files with no name assumption, **15 files
+under `*/hsb/` carry a RealSense-only notice while sharing 45–95% of their substantive lines with an
+upstream file**, `d555_sipl_player.cpp` (95%), `d555_sipl_capture.hpp` (94%) and
+`d555_sipl_capture.cpp` (87%) among them. They need the same treatment as `d457_sipl_fmt.hpp`:
+NVIDIA's notice retained, RealSense's added. Tracked in #6.

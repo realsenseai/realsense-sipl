@@ -1,4 +1,5 @@
 /*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 RealSense AI. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *

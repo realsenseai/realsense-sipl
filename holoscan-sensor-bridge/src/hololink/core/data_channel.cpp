@@ -43,6 +43,7 @@ DataChannel::DataChannel(const Metadata& metadata, const std::function<std::shar
     // disabled because the boards in use report an IP version older than MINIMUM_HSB_IP_VERSION and
     // throwing made them unusable; silently deleting the check hid that. Confirm the version the
     // fleet actually reports and either lower MINIMUM_HSB_IP_VERSION to it or restore the throw.
+    // Tracked as an accepted risk, with the steps to close it, in issue #7.
     if (hsb_ip_version.value() < MINIMUM_HSB_IP_VERSION) {
         HSB_LOG_WARN("hsb_ip_version={:#x} is below the minimum supported {:#x}; continuing anyway",
             hsb_ip_version.value(), MINIMUM_HSB_IP_VERSION);
