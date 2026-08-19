@@ -1,0 +1,9 @@
+**/__pycache__
+realsense-holoscan/__pycache__
+realsense_mipi_platform_driver/
+holoscan_sensor_bridge_fpga_ip_2412/
+.vscode/
+build/
+*.raw
+*.onnx
+*.fp16

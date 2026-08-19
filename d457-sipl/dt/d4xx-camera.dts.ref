@@ -1,0 +1,59 @@
+/*
+ * Reference: live d4xx (V4L2) camera DT subtree on fw-advantech-thor-1
+ * (dtc -I fs -O dts /proc/device-tree). For deriving the cdi-mgr overlay. Not for flashing.
+ * Trimmed to the camera-relevant nodes under the i2c@810c6a0000 controller (= /dev/i2c-9).
+ */
+i2c@810c6a0000 {                        /* nvidia,tegra264-i2c ; /dev/i2c-9 ; clock 100kHz */
+    compatible = "nvidia,tegra264-i2c";
+    reg = <0x81 0xc6a0000 0x00 0x10000>;
+    status = "okay";
+    #address-cells = <0x01>;
+    #size-cells = <0x00>;
+
+    max96712@29 {                       /* deserializer */
+        compatible = "maxim,max96712";
+        reg = <0x29>;
+        csi-mode = "2x4";
+        channel = "a";
+        force_clk0;
+        status = "okay";
+    };
+
+    ds5@1a {                            /* D457 DEPTH stream */
+        compatible = "intel,d4xx";
+        reg = <0x1a>;
+        def-addr = <0x10>;              /* camera default I2C addr after reset */
+        cam-type = "Depth";
+        nvidia,gmsl-ser-device  = <&max9295_a>;
+        nvidia,gmsl-dser-device = <&max96712>;
+        use_sensor_mode_id = "true";
+        status = "okay";
+        mode0 {
+            active_w = "1280"; active_h = "720";
+            num_lanes = "2"; csi_pixel_bit_depth = "16"; pixel_t = "grey_y16";
+            pix_clk_hz = "74250000"; embedded_metadata_height = "1";
+            line_length = "1280"; tegra_sinterface = "serial_a";
+        };
+        ports { port@0 { endpoint {
+            bus-width = <0x02>; vc-id = <0x00>; port-index = <0x00>;  /* CSI-A, VC0 */
+        }; }; };
+        gmsl-link {
+            csi-mode = "1x4"; src-csi-port = "b"; dst-csi-port = "a";
+            serdes-csi-link = "a"; st-vc = <0x00>; vc-id = <0x00>; num-lanes = <0x02>;
+        };
+    };
+
+    /* Other D457 streams (same module, address-translated by the deser; separate VCs):
+     *   ds5@1b "RGB"  reg 0x1b  vc-id 1  1920x1080  serial_e
+     *   ds5@1c "Y8"   reg 0x1c  vc-id 2  1280x720   serial_b
+     *   ds5@1d "IMU"  reg 0x1d  vc-id 3  640x480    serial_b
+     * all: def-addr 0x10, override_reg 0x1a, num_lanes 2, csi_pixel_bit_depth 16
+     */
+
+    max9295_a@40 {                      /* serializer */
+        compatible = "maxim,max9295";
+        reg = <0x40>;
+        maxim,gmsl-dser-device = <&max96712>;
+        status = "okay";
+    };
+};

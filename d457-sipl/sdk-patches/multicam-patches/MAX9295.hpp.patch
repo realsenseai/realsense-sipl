@@ -1,0 +1,20 @@
+--- a/MAX9295.hpp
++++ b/MAX9295.hpp
+@@ -48,6 +48,9 @@
+      */
+     explicit MAX9295(const GmslModuleContext::Config& config) : SerializerUbb(config) {
+         g_serializerInfo.model = "MAX9295";
++        // Multi-camera: remember which GMSL link this serializer is on, to program a per-link sensor
++        // i2c address translation (link N -> virtual 0x1A + N*0x10). See SerInit().
++        m_link = (config.linkIndex <= 3U) ? static_cast<uint8_t>(config.linkIndex) : 0U;
+     }
+ 
+     /**
+@@ -80,6 +83,7 @@
+     GmslSerializerInfo g_serializerInfo;
+     bool CheckPresence(GmslSerializerContext const& context);
+     MAX9295Config m_config {};
++    uint8_t m_link {0U};   ///< GMSL link index (for per-link sensor i2c address translation).
+ 
+     // MAX9295 specific register addresses
+     static constexpr uint16_t DEVICE_ID_REG = 0x000D;

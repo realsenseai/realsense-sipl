@@ -52,6 +52,9 @@ done
 # done by Argus API and only ISP being used.
 # NOTE that we're currently testing with a value of 2 here.
 
+# The two SIPL mounts below are read-only: the container needs the drivers and SDK headers to build
+# against and to load, never to write them. Writable, a careless or compromised run inside this
+# (already privileged) container could replace host driver .so files loaded later outside it.
 docker run \
     -it \
     --rm \
@@ -67,6 +70,8 @@ docker run \
     -v /sys/bus/pci/devices:/sys/bus/pci/devices \
     -v /sys/kernel/mm/hugepages:/sys/kernel/mm/hugepages \
     -v /dev:/dev \
+    -v /usr/lib/nvsipl_drv:/usr/lib/nvsipl_drv:ro \
+    -v /usr/src/jetson_sipl_api:/usr/src/jetson_sipl_api:ro \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v /tmp/argus_socket:/tmp/argus_socket \
     -v /sys/devices:/sys/devices \
@@ -76,5 +81,6 @@ docker run \
     -e NVIDIA_VISIBLE_DEVICES=all \
     -e DISPLAY=$DISPLAY \
     -e enableRawReprocess=2 \
+    --ulimit stack=33554432 \
     hololink-demo:$VERSION \
     $*

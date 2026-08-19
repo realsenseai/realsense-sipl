@@ -48,13 +48,14 @@ RUN cd /opt/hololink \
 # demo container
 FROM base AS demo
 
+
 RUN python3 -m pip install --upgrade pip
 RUN pip3 install pytest pytest-timeout
 
 # net-tools gives us the "arp" command
 # iputils-ping gives us the "ping" command
 RUN apt-get update \
-    && apt-get install -y net-tools iputils-ping iproute2 \
+    && apt-get install -y net-tools iputils-ping iproute2 libusb-1.0-0 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update \
@@ -68,3 +69,8 @@ RUN WHEEL=$(find /tmp/wheel -type f -name "hololink-*.whl") \
 
 # Install the C++ tools
 COPY --from=builder /opt/hololink/tools/usr/local/ /usr/local/
+
+# Due to import issues with 13.0 downgrade to 12.9
+# https://github.com/NVIDIA/cuda-python/issues/476
+RUN pip uninstall -y cuda-python cuda-bindings cuda-core && \
+    pip install --no-cache-dir cuda-python==12.9 cuda-core

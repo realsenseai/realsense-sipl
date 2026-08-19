@@ -73,12 +73,15 @@ RUN if [ ! -d "/usr/src/jetson_sipl_api" ]; then \
         rm Jetson_SIPL_API_R${L4T_VERSION}_aarch64.tbz2; \
     fi
 
-# Build and install the UDDF drivers.
+# Build the UDDF drivers (best-effort, never fatal). The R39.2 SIPL SDK additionally tries to build +
+# install its own sample drivers and a bundled hololink-core, which fail at this stage (missing deps /
+# conflicting targets / unwritable copy paths). None of it is needed by HSB: HSB links the runtime libs
+# from l4t-libs, uses the host-mounted /usr/lib/nvsipl_drv at runtime, and only consumes the SDK
+# *headers* under /usr/src/jetson_sipl_api (which are present without building).
 RUN cd /usr/src/jetson_sipl_api/sipl && \
     rm -rf build && mkdir build && cd build && \
-    cmake .. && \
-    make -j && \
-    make install
+    { cmake .. && make -j && make install; } \
+    || echo "WARN: SIPL SDK UDDF build/install skipped (not needed by HSB)"
 
 # EGL and libGLESv2 are needed by Argus api otherwise the library throws error.
 RUN apt-get update && \
@@ -87,7 +90,7 @@ RUN apt-get update && \
 
 # Copy the L4T libraries into the container.
 COPY --from=l4t-libs \
-    libgnat-24.so \
+    libgnat-25.so \
     libnvargus.so \
     libnvargus_socketclient.so \
     libnvargus_socketserver.so \

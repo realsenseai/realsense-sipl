@@ -102,7 +102,7 @@ void FusaCoeCaptureOp::start()
                 static_cast<int>(status), static_cast<void*>(coe_handler_)));
     }
 
-    HSB_LOG_INFO("Opened NvFusaCapture channel {}", coe_handler_->getChannelNumber());
+    HSB_LOG_INFO("Opened NvFusaCapture channel {} op name {}", coe_handler_->getChannelNumber(), name());
 
     // Register output buffers with NvFusa.
     if (!register_buffers()) {
@@ -289,6 +289,9 @@ uint32_t FusaCoeCaptureOp::transmitted_line_bytes(csi::PixelFormat pixel_format,
     case csi::PixelFormat::RAW_12:
         // 2 pixels per 3 bytes
         return ((pixel_width + 1) / 2) * 3;
+    case csi::PixelFormat::RAW_16:
+        // 2 bytes per pixel
+        return pixel_width * 2;
     default:
         throw std::runtime_error("Invalid bit depth");
     }
@@ -340,6 +343,9 @@ bool FusaCoeCaptureOp::alloc_sci_buf(NvSciBufObj& buf_obj, size_t& size)
         break;
     case csi::PixelFormat::RAW_12:
         color_format = NvSciColor_Bayer16RGGB; // Using RAW16 as RAW12 doesn't exist in NvSci
+        break;
+    case csi::PixelFormat::RAW_16:
+        color_format = NvSciColor_Bayer16RGGB;
         break;
     default:
         HSB_LOG_ERROR("Unsupported pixel format");

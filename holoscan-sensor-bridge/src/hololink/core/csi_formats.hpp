@@ -33,12 +33,17 @@ namespace hololink::csi {
  * CSI-2 specification for details.
  */
 enum class PixelFormat {
+    INVALID = -1,
     /** One byte per pixel */
     RAW_8 = 0,
     /** 10 bits per pixel; arranged as 5 bytes representing 4 pixels. */
     RAW_10 = 1,
     /** 12 bits per pixel; arranged as 3 bytes representing 2 pixels. */
     RAW_12 = 2,
+    /** 16 bits per pixel; 2 bytes per pixel, no packing. Useful for Z16-like streams. */
+    RAW_16 = 3,
+     /** YUV422 8-bit packed (Y0 U Y1 V). */
+    YUYV_422_8 = 4,
 };
 
 // Bayer Format Enum
