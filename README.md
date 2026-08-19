@@ -121,12 +121,7 @@ Stream selection is by environment variable: `D457_STREAM=depth|rgb|ir` for a si
 
 ## License
 
-⚠ **The repository's licence is unresolved and this is a release blocker — see [#8](https://github.com/realsenseai/realsense-sipl/issues/8).**
-The root [`LICENSE`](LICENSE) is the **MIT** licence, while the 89 source headers under `d457-sipl/`
-and `d555-sipl/`, the vendored `holoscan-sensor-bridge/` tree and the files derived from it are all
-**Apache-2.0**. Apache-2.0 code cannot be redistributed under MIT, so the two cannot both stand.
-Whoever owns licensing has to pick one before this goes public; nothing here has assumed the answer.
-Third-party code keeps its own notices:
+This repository is Apache-2.0 — see [`LICENSE`](LICENSE). Third-party code keeps its own notices:
 
 | Path | License |
 | --- | --- |
