@@ -11,7 +11,7 @@
                 "hsbSensorIndex": 0,
                 "hsb_id": 0,
                 "sensor": {
-                    "mac_address": "98:4F:EE:18:A7:EC",
+                    "mac_address": "98:4F:EE:19:E1:5B",
                     "ip_address": "192.168.0.2"
                 }
             },
@@ -25,7 +25,7 @@
                         "cfa": "gbrg",
                         "embeddedTopLines": 0,
                         "embeddedBottomLines": 0,
-                        "inputFormat": "raw10packed",
+                        "inputFormat": "raw16",
                         "width": 640,
                         "height": 360,
                         "fps": 30.0,
@@ -45,7 +45,7 @@
                 "hsbSensorIndex": 0,
                 "hsb_id": 0,
                 "sensor": {
-                    "mac_address": "98:4F:EE:18:A7:EC",
+                    "mac_address": "98:4F:EE:19:E1:5B",
                     "ip_address": "192.168.0.2"
                 }
             },
@@ -59,7 +59,7 @@
                         "cfa": "gbrg",
                         "embeddedTopLines": 0,
                         "embeddedBottomLines": 0,
-                        "inputFormat": "raw10packed",
+                        "inputFormat": "raw16",
                         "width": 1280,
                         "height": 720,
                         "fps": 30.0,

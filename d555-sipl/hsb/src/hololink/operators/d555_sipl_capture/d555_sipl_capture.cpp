@@ -291,6 +291,10 @@ void D555SIPLCaptureOp::fill_camera_info()
             info.pixel_format = hololink::csi::PixelFormat::RAW_12;
             info.offset = ((info.width * 12) / 8) * camera.sensorInfo.vcInfo.embeddedTopLines;
             break;
+        case NVSIPL_CAP_INPUT_FORMAT_TYPE_RAW16:
+            info.pixel_format = hololink::csi::PixelFormat::RAW_16;
+            info.offset = (info.width * 2) * camera.sensorInfo.vcInfo.embeddedTopLines;
+            break;
         default:
             throw std::runtime_error("Unsupported input format");
         }
@@ -786,6 +790,14 @@ void D555SIPLCaptureOp::compute(holoscan::InputContext& op_input,
             || plane_color_format[0] == NvSciColor_X2Rc10Rb10Ra10_Bayer10GRBG
             || plane_color_format[0] == NvSciColor_X2Rc10Rb10Ra10_Bayer10GBRG;
 
+
+        // RAW16 (e.g. D555 depth Z16) arrives as Bayer16*; there is nothing to de-Bayer, so it is
+        // wrapped as a flat byte tensor exactly like RAW10 below.
+        const bool is_raw16 = plane_color_format[0] == NvSciColor_Bayer16RGGB
+            || plane_color_format[0] == NvSciColor_Bayer16BGGR
+            || plane_color_format[0] == NvSciColor_Bayer16GRBG
+            || plane_color_format[0] == NvSciColor_Bayer16GBRG
+            || plane_color_format[0] == NvSciColor_Bayer16CCCC;
         if (is_nv12) {
             // Create the output VideoBuffer to wrap the buffer.
             auto video_buffer = static_cast<nvidia::gxf::Entity&>(entity).add<nvidia::gxf::VideoBuffer>(name);
@@ -807,7 +819,7 @@ void D555SIPLCaptureOp::compute(holoscan::InputContext& op_input,
                     cuda_mappings_[buf_obj].ptr_, buffer_release_callback)) {
                 throw std::runtime_error("Failed to add wrapped VideoBuffer memory");
             }
-        } else if (is_raw10) {
+        } else if (is_raw10 || is_raw16) {
             // Create the output Tensor to wrap the buffer.
             auto tensor = static_cast<nvidia::gxf::Entity&>(entity).add<nvidia::gxf::Tensor>(name);
             if (!tensor) {

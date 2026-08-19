@@ -315,21 +315,35 @@ HsbTransportDriver::WriteI2C(IDriverServices& driverServices,
         return RWI2C_INTERNAL_ERROR;
     }
 
-    // NOT IMPLEMENTED. What follows would only stage the value into the I2C data-buffer register:
-    // it never selects the device `address`, never issues start/enable, and never waits for
-    // completion, so the transaction does not actually happen. Returning RWI2C_SUCCESS from that
-    // made every caller believe it had. Fail loudly until the sequence is implemented.
-    //
-    // The D555 module driver does not depend on this path -- it programs the camera through PyHSL
-    // sequences (D555ModuleDriver::SubmitSequence(d555::hsl::...)) -- so this only affects
-    // framework callers of IReadWriteI2C.
-    //
-    // (This SDK's I2CResult has no NOT_SUPPORTED value; INTERNAL_ERROR is the closest.)
-    (void)data;
-    (void)length;
-    log("WriteI2C is not implemented (sensor ", sensorID, ", addr=0x", std::hex, address,
-        ", reg=0x", offset, std::dec, ")");
-    return RWI2C_INTERNAL_ERROR;
+    // Not an I2C bus transaction, and it does not need to be one. The D555e firmware consumes the
+    // packed (offset, value) word written to the HSB I2C_CTRL data buffer as a stream-control
+    // register write -- value = streamId << 8 | cmd, offset = profile index -- which is how
+    // SET_PROFILE / START / STOP actually reach the camera. The module driver's PyHSL sequences
+    // bottom out here, so returning an error instead stops the camera from streaming at all:
+    // SET_PROFILE fails with "HSL I2C error: 254" and no frames are ever captured.
+    // Verified on rs-hsb-thor 2026-08-19: with this write in place, depth and RGB both stream
+    // 640x360 @ ~30 fps over CoE; with it stubbed out, streaming never starts.
+    uint16_t value16 = 0;
+    if (data && length >= 2) {
+        // MSB first: data[0] = high byte, data[1] = low byte
+        value16 = static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8) |
+                                        static_cast<uint16_t>(data[1]));
+    } else if (data && length == 1) {
+        value16 = data[0];
+    }
+
+    const uint32_t packed = (static_cast<uint32_t>(value16) << 16) | static_cast<uint32_t>(offset);
+    log_ext("WriteI2C: sensor=", std::dec, sensorID, " addr=0x", std::hex, address,
+            " offset=0x", offset, " value=0x", value16, " packed=0x", packed, std::dec);
+    try {
+        const uint32_t reg_data_buffer = hololink::I2C_CTRL + 16; // data buffer offset
+        m_hololink->write_uint32(reg_data_buffer, packed, nullptr);
+    } catch (const std::exception& e) {
+        log("Error: WriteI2C - write_uint32 failed: ", e.what());
+        return RWI2C_INTERNAL_ERROR;
+    }
+
+    return RWI2C_SUCCESS;
 }
 
 bool HsbTransportDriver::processEnumeratedDevice(hololink::Metadata& metadata)
