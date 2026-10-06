@@ -1,0 +1,3 @@
+# The scripts and apps run on Linux (the rig): keep LF even on Windows checkouts.
+*.sh text eol=lf
+*.py text eol=lf

@@ -49,6 +49,7 @@ each, pinning the HSB submodule to a different HSB branch.
 | `d457-sipl/` | **D457 over GMSL (R39.2).** The SIPL/UDDF camera-module driver, query plugin, cdi-mgr device-tree overlay, DS5 register tables, SerDes SDK patches, its Holoscan code in `hsb/`, rig tools and tests |
 | `holoscan-sensor-bridge/` | Vendored NVIDIA Holoscan Sensor Bridge 2.5.0 (Apache-2.0), kept near upstream — shared infrastructure only, no camera-specific code — see [`REALSENSE-FORK-NOTICE.md`](holoscan-sensor-bridge/REALSENSE-FORK-NOTICE.md) |
 | `d555-sipl/` | **D555 over CoE (R38).** The UDDF module/sensor drivers, the CoE/HSB transport, its PyHSL sequences, and its Holoscan code in `hsb/` |
+| `d555-roce/` | **D555 over RoCEv2.** Host apps and test tools that receive the D555e's RoCEv2 frames with the stock HSB 2.7 `RoceReceiverOp` on an RDMA NIC (ConnectX-7), into host memory or GPU VRAM; no SIPL, no graft — see [`d555-roce/README.md`](d555-roce/README.md) |
 | `resources/` | Screenshots and misc assets |
 
 ---
