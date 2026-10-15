@@ -107,7 +107,15 @@ def make_receiver(app, args, name, profile, channel, camera, condition, index=0)
         device=camera,
     )
     if args.receiver == "roce":
-        ibv_name = args.ibv_name or hololink_module.infiniband_devices()[0]
+        ibv_name = args.ibv_name
+        if not ibv_name:
+            devices = hololink_module.infiniband_devices()
+            if not devices:
+                raise RuntimeError(
+                    "--receiver roce needs an RDMA device and none was found; "
+                    "use --receiver linux"
+                )
+            ibv_name = devices[0]
         return hololink_module.operators.RoceReceiverOp(
             app, condition, ibv_name=ibv_name, ibv_port=args.ibv_port, **common
         )

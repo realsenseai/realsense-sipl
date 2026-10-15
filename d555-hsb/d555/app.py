@@ -89,10 +89,10 @@ def run(app, hololink, device):
         app.run()
     finally:
         hololink.stop()
+        release_cuda(device)
     passed = True
     for stats, camera, frame_limit in app.streams:
         line, ok = stats.result(frame_limit, camera.stop_failed)
         logging.info(line)
         passed &= ok
-    release_cuda(device)
     return 0 if passed else 1
