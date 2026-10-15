@@ -23,11 +23,11 @@
 			"aarch64"
 		],
 		"tags": [
+			"Camera",
 			"Sensor Bridge",
 			"RealSense",
 			"Depth",
-			"RoCE",
-			"Camera"
+			"RoCE"
 		],
 		"ranking": 3,
 		"requirements": {
