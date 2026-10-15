@@ -28,7 +28,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import holoscan
-from cuda import cuda
+import cuda.bindings.driver as cuda
 import hololink as hololink_module
 
 

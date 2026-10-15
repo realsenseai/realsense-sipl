@@ -47,6 +47,12 @@ echo "[3/3] launching PeopleNet detection ('$S') on ${VNC_DISPLAY} ... (Ctrl-C t
 cd $HOME/holoscan-sensor-bridge || exit 1
 cat > $HOME/_d457_play.sh <<EOF
 cd $HOME/holoscan-sensor-bridge || exit 1
+# Use the HSB tree built by prepare_hsb.sh + the container build, not the hololink baked into the
+# demo image: overlay the Python sources with the compiled modules and put that first.
+rm -rf _pyroot && mkdir -p _pyroot/hololink
+cp -rs $HOME/holoscan-sensor-bridge/python/hololink/. _pyroot/hololink/
+cp -rsf $HOME/holoscan-sensor-bridge/build/python/lib/hololink/. _pyroot/hololink/
+export PYTHONPATH=$HOME/holoscan-sensor-bridge/_pyroot\${PYTHONPATH:+:\$PYTHONPATH}
 python3 examples/d457_tao_peoplenet.py --camera-config D457_Camera --stream $S $EXTRA
 EOF
 chmod +x $HOME/_d457_play.sh

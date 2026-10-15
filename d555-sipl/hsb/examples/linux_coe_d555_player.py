@@ -28,7 +28,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import holoscan
-from cuda import cuda
+import cuda.bindings.driver as cuda
 import hololink as hololink_module
 
 
@@ -44,7 +44,7 @@ class HoloscanApplication(holoscan.core.Application):
         camera_mode,
         frame_limit,
         coe_interface,
-        stream_id,
+        coe_channel,
     ):
         logging.info("__init__")
         super().__init__()
@@ -57,7 +57,7 @@ class HoloscanApplication(holoscan.core.Application):
         self._camera_mode = camera_mode
         self._frame_limit = frame_limit
         self._coe_interface = coe_interface
-        self._stream_id = stream_id
+        self._coe_channel = coe_channel
 
     def compose(self):
         logging.info("compose")
@@ -100,7 +100,7 @@ class HoloscanApplication(holoscan.core.Application):
             device=self._camera,
             coe_interface=self._coe_interface,
             pixel_width=pixel_width,
-            coe_channel=self._stream_id
+            coe_channel=self._coe_channel
         )
         visualizer = holoscan.operators.HolovizOp(
             self,
@@ -174,6 +174,13 @@ def main():
         default="eth0",
         help="Name of interface connected to VETH 3276 (0xCCC).",
     )
+    parser.add_argument(
+        "--coe-channel",
+        type=int,
+        default=4,
+        help="IEEE 1722 CoE channel to receive. D555 firmware 7.59.0.16345 sends every stream on "
+        "channel 4; older firmware used the stream ID (depth 2, RGB 0).",
+    )
     args = parser.parse_args()
     hololink_module.logging_level(args.log_level)
     logging.getLogger().setLevel(args.log_level)
@@ -221,7 +228,7 @@ def main():
         camera_mode,
         args.frame_limit,
         args.coe_interface,
-        stream_id.value,
+        args.coe_channel,
     )
     application.config(args.configuration)
     # Run it.

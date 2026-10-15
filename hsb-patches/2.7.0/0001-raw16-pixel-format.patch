@@ -1,0 +1,121 @@
+RAW_16 pixel format (16 bits per pixel, unpacked) for HSB 2.7.0.
+
+Upstream supports RAW_8/10/12 only. The RealSense D555 delivers depth (Z16) and RGB (YUYV) as
+16-bit containers, so this adds csi::PixelFormat::RAW_16 (plus YUYV_422_8 and INVALID, which the
+D555 image decoder uses) and the Python binding, and handles RAW_16 in image_processor (all 16
+bits are data), packed_format_converter (a strided copy; nothing to unpack) and
+fusa_coe_capture (2 bytes per pixel, a Bayer16 NvSci buffer). Generic pixel-format support, no
+camera-specific code.
+
+diff --git a/python/hololink/hololink.cpp b/python/hololink/hololink.cpp
+index e3a760a..263f358 100644
+--- a/python/hololink/hololink.cpp
++++ b/python/hololink/hololink.cpp
+@@ -453,9 +453,12 @@ PYBIND11_MODULE(_hololink, m)
+ 
+     // Bind PixelFormat enum
+     py::enum_<hololink::csi::PixelFormat>(m, "PixelFormat")
++        .value("INVALID", hololink::csi::PixelFormat::INVALID, R"pbdoc(Invalid pixel format)pbdoc")
+         .value("RAW_8", hololink::csi::PixelFormat::RAW_8, R"pbdoc(RAW 8-bit)pbdoc")
+         .value("RAW_10", hololink::csi::PixelFormat::RAW_10, R"pbdoc(RAW 10-bit)pbdoc")
+-        .value("RAW_12", hololink::csi::PixelFormat::RAW_12, R"pbdoc(RAW 12-bit)pbdoc");
++        .value("RAW_12", hololink::csi::PixelFormat::RAW_12, R"pbdoc(RAW 12-bit)pbdoc")
++        .value("RAW_16", hololink::csi::PixelFormat::RAW_16, R"pbdoc(RAW 16-bit)pbdoc")
++        .value("YUYV_422_8", hololink::csi::PixelFormat::YUYV_422_8, R"pbdoc(YUV422 8-bit packed (Y0 U Y1 V))pbdoc");
+ 
+     // Bind BayerFormat enum
+     py::enum_<hololink::csi::BayerFormat>(m, "BayerFormat")
+diff --git a/src/hololink/core/csi_formats.hpp b/src/hololink/core/csi_formats.hpp
+index ff181da..9f7d332 100644
+--- a/src/hololink/core/csi_formats.hpp
++++ b/src/hololink/core/csi_formats.hpp
+@@ -33,12 +33,17 @@ namespace hololink::csi {
+  * CSI-2 specification for details.
+  */
+ enum class PixelFormat {
++    INVALID = -1,
+     /** One byte per pixel */
+     RAW_8 = 0,
+     /** 10 bits per pixel; arranged as 5 bytes representing 4 pixels. */
+     RAW_10 = 1,
+     /** 12 bits per pixel; arranged as 3 bytes representing 2 pixels. */
+     RAW_12 = 2,
++    /** 16 bits per pixel; 2 bytes per pixel, no packing. Useful for Z16-like streams. */
++    RAW_16 = 3,
++     /** YUV422 8-bit packed (Y0 U Y1 V). */
++    YUYV_422_8 = 4,
+ };
+ 
+ // Bayer Format Enum
+diff --git a/src/hololink/operators/fusa_coe_capture/fusa_coe_capture_core.cpp b/src/hololink/operators/fusa_coe_capture/fusa_coe_capture_core.cpp
+index 2dcf6eb..182f264 100644
+--- a/src/hololink/operators/fusa_coe_capture/fusa_coe_capture_core.cpp
++++ b/src/hololink/operators/fusa_coe_capture/fusa_coe_capture_core.cpp
+@@ -91,6 +91,9 @@ uint32_t FusaCoeCaptureCore::transmitted_line_bytes(
+         return ((pixel_width + 2) / 3) * 4;
+     case hololink::csi::PixelFormat::RAW_12:
+         return ((pixel_width + 1) / 2) * 3;
++    case hololink::csi::PixelFormat::RAW_16:
++        // 2 bytes per pixel, nothing to unpack
++        return pixel_width * 2;
+     default:
+         throw std::runtime_error("Invalid bit depth");
+     }
+@@ -394,6 +397,9 @@ bool FusaCoeCaptureCore::alloc_sci_buf(NvSciBufObj& buf_obj, size_t& size)
+         case hololink::csi::PixelFormat::RAW_12:
+             color_format = NvSciColor_Bayer16RGGB;
+             break;
++        case hololink::csi::PixelFormat::RAW_16:
++            color_format = NvSciColor_Bayer16RGGB;
++            break;
+         default:
+             HSB_LOG_ERROR("Unsupported pixel format");
+             return false;
+diff --git a/src/hololink/operators/image_processor/image_processor.cpp b/src/hololink/operators/image_processor/image_processor.cpp
+index 6d0ee74..bebbae1 100644
+--- a/src/hololink/operators/image_processor/image_processor.cpp
++++ b/src/hololink/operators/image_processor/image_processor.cpp
+@@ -275,6 +275,10 @@ void ImageProcessorOp::start()
+         // data is stored in the upper 12 bits of a 16 bit value
+         least_significant_bit = 16 - 12;
+         break;
++    case hololink::csi::PixelFormat::RAW_16:
++        // data is stored in all 16 bits
++        least_significant_bit = 0;
++        break;
+     default:
+         throw std::runtime_error(fmt::format("Camera pixel format {} not supported.", int(pixel_format_.get())));
+     }
+diff --git a/src/hololink/operators/packed_format_converter/packed_format_converter.cpp b/src/hololink/operators/packed_format_converter/packed_format_converter.cpp
+index a3f247e..0d2a23c 100644
+--- a/src/hololink/operators/packed_format_converter/packed_format_converter.cpp
++++ b/src/hololink/operators/packed_format_converter/packed_format_converter.cpp
+@@ -17,6 +17,8 @@
+ 
+ #include "packed_format_converter.hpp"
+ 
++#include <cuda_runtime.h>
++
+ #include <hololink/common/cuda_helper.hpp>
+ #include <hololink/core/logging_internal.hpp>
+ #include <hololink/core/networking.hpp>
+@@ -227,6 +229,19 @@ void PackedFormatConverterOp::compute(holoscan::InputContext& input, holoscan::O
+             input_tensor->pointer() + start_byte_,
+             bytes_per_line_, pixel_width_, pixel_height_);
+         break;
++    case hololink::csi::PixelFormat::RAW_16: {
++        // Already 16 bits/pixel (e.g. D555 depth Z16), so there is nothing to unpack -- just a
++        // strided copy that drops any per-line padding.
++        const size_t row_bytes = static_cast<size_t>(pixel_width_) * 2u;
++        const cudaError_t err = cudaMemcpy2DAsync(tensor.value()->pointer(), row_bytes,
++            input_tensor->pointer() + start_byte_, bytes_per_line_,
++            row_bytes, pixel_height_, cudaMemcpyDeviceToDevice, cuda_stream);
++        if (err != cudaSuccess) {
++            throw std::runtime_error(
++                fmt::format("RAW_16 cudaMemcpy2DAsync failed: {}", cudaGetErrorString(err)));
++        }
++        break;
++    }
+     default:
+         throw std::runtime_error("Unsupported bits per pixel value");
+     }
