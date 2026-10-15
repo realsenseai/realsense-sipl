@@ -65,9 +65,11 @@ nvsipl_camera -h        # the help text lists supported -c configs; "D457_Camera
 | `-N <folder>` | `--nito` | ISP tuning (NITO) folder — **not used** (ISP is off for the D457). |
 | `-h` | `--help` | Print usage and the list of registered configs. |
 
-**Stream selection is NOT a flag** — it is the `D457_STREAM` environment variable read by our driver
-inside the HAL process: `D457_STREAM=depth|rgb|ir` (default `depth`). One stream at a time on VC0 in
-the single-sensor config.
+**Stream selection is NOT a flag** — it is an environment variable read by our driver inside the
+HAL process. With the default query (three sensors: depth, RGB, IR on VC0, VC1, VC2) the driver plays
+all three; `D457_STREAMS=depth,rgb,ir` picks any subset or order, and needs a query declaring the
+same streams (`tests/lib/common.sh` `gen_query` builds one). `D457_STREAM=depth|rgb|ir` applies only
+to a single-sensor query.
 
 ---
 
@@ -116,7 +118,8 @@ sudo nvsipl_camera -t /path/to/d457_gmsl.json -R -0 -1 -2 -r 10 -v 3
   on a 720p30 config is the good state. The depth bring-up reference was *374 frames, 29.998 fps,
   83.8% non-zero, median 978 mm*.
 - **Frame files** are raw **RAW16, 1280×720, little-endian**, 1,843,200 bytes each. The DS5 routes
-  every stream as RAW16 (DT 0x2E) on VC0; the bytes are reinterpreted per stream:
+  every stream as RAW16 (DT 0x2E), each on its own VC (depth 0, RGB 1, IR 2); the bytes are
+  reinterpreted per stream:
   | `D457_STREAM` | On-the-wire | Reinterpret as |
   |---------------|-------------|----------------|
   | `depth` | RAW16 (byte-swapped LE) | Z16 depth in mm |
@@ -184,10 +187,10 @@ sudo pkill -9 -x nvsipl_camera        # -x = exact name match (NOT -f)
   depth/IR single-stream case.
 - **`-0 -1 -2` are ISP-output disables, not pipeline selectors.** Pipelines come from the query DB
   `sensorInfo[]` (one sensor = one VC = one pipeline). Stream choice is the `D457_STREAM` env var.
-- **One stream at a time** in the single-sensor config; simultaneous depth+RGB (multi-VC) is a
-  separate, in-progress config.
-- The frame dump is the *only* verification surface today — there is no RealSense viewer/consumer
-  app yet.
+- **Streams run together** on separate VCs (depth 0, RGB 1, IR 2) with the default query; the query
+  and `D457_STREAMS` must name the same streams in the same order.
+- Besides the frame dump, the Holoscan player `hsb/examples/d457_sipl_player.py` shows every stream
+  live (see `hsb/README.md` and `tools/run_d457.sh`).
 
 ---
 
@@ -211,10 +214,10 @@ dmesg -w                                # CSI/VI (kernel)
 |------|-------|
 | Rig | `fw-advantech-thor-1` (MIC-742, Thor, L4T r39.2) — tooling default, override with `RIG_HOST`/`RIG_USER`/`RIG_KEY` |
 | Config name | `D457_Camera` (with `-H`) |
-| Stream select | `D457_STREAM=depth\|rgb\|ir` (env, default depth) |
+| Stream select | `D457_STREAMS=depth,rgb,ir` (any subset, matching the query); `D457_STREAM` for a single-sensor query |
 | Link mask | `-m 0x0001` (link 0) |
 | Frame format | RAW16, 1280×720, 1,843,200 B/frame |
-| Patched libs | none (stock `libnvsipl.so`; 4 Tegra lanes @ 1100 Mbps) |
+| Patched libs | none (stock `libnvsipl.so`; 4 Tegra lanes @ 2500 Mbps) |
 | DS5 power-cycle | `i2cset -y 9 0x28 0x01 0x00 / …0x1f` |
 | Device node | `/dev/cdi-mgr.9.a` (sipl-d457 boot label) |
 | Stop | `pkill -9 -x nvsipl_camera` |

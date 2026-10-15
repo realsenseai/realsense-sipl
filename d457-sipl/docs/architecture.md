@@ -3,8 +3,7 @@
 How the **RealSense D457** streams over **GMSL** into an **NVIDIA Jetson Thor**
 (Advantech MIC-742, L4T r39.2) through **NVIDIA SIPL/UDDF**, instead of the V4L2 `d4xx` path.
 
-This is the *map*. For the "why" behind any hard-won value, see ``; for current
-status and what's left, see ``.
+This is the *map*. For diagnosing a failing capture, see `debug-guide.md`.
 
 ---
 
@@ -31,15 +30,15 @@ because SIPL's ICP capture path silently drops YUV422. Depth/IR set the DS5 outp
 ```
                           ┌──────────────────────────────────────────────────┐
                           │  L7  CONSUMER / APPLICATION                        │
-   data plane             │  nvsipl_camera (NVIDIA sample) — only consumer     │
-   (frames, up)           │  today. "RealSense SIPL viewer" = NOT BUILT yet.   │   ⬅ frames out
+   data plane             │  nvsipl_camera (NVIDIA sample), and the Holoscan   │
+   (frames, up)           │  D457SIPLCaptureOp + d457_sipl_player.py (hsb/)    │   ⬅ frames out
         ▲                 └───────────────────────────┬──────────────────────┘
         │                                             │ INvSIPLClient / NotificationQueue
         │                 ┌───────────────────────────┴──────────────────────┐
         │                 │  L6  SIPL FRAMEWORK  (NVIDIA libnvsipl.so)         │
         │                 │  INvSIPLCamera · pipeline mgr · ICP raw capture    │
         │                 │  (ISP OFF) · NvSciBuf buffer pools                 │
-        │                 │  ── 1 patch: BuildSensorProperty lanes 4→2 ──      │
+        │                 │  used unpatched (csi-ab gives 4 Tegra lanes)       │
         │                 └──────┬──────────────────────────┬─────────────────┘
         │                        │ dlopen qry_*.so          │ loads UDDF drivers
         │            ┌───────────┴──────────┐    ┌──────────┴────────────────────────┐
@@ -72,12 +71,12 @@ because SIPL's ICP capture path silently drops YUV422. Depth/IR set the DS5 outp
         │   │  depth Z16 │     │ MIPI                                                     │
         │   │  rgb  YUYV │     ▼                                                          │
         │   │  ir   Y8I  │  MAX9295A serializer ── GMSL2 6Gbps ──> MAX96712 deserializer  │
-        │   └────────────┤                                              │ 2-lane D-PHY    │
+        │   └────────────┤                                              │ 4-lane D-PHY    │
         │                └──────────────────────────────────────────────┼───────────────┘
-        │                                                                ▼ 594 Mbps/lane
+        │                                                                ▼ 2500 Mbps/lane
         │                ┌──────────────────────────────────────────────────────────────┐
         └────────────────┤  L1  TEGRA CAPTURE                                             │
-                         │  CSI-A → NVCSI (CIL-A, 2 lanes) → VI → DMA into NvSciBuf pool   │
+                         │  CSI-AB → NVCSI (4 lanes) → VI → DMA into NvSciBuf pool         │
                          └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,13 +93,13 @@ in this repo (except the patches we apply to them).
 
 | Layer | Component | Owner | Code location |
 |---|---|---|---|
-| **L8** | RealSense SIPL viewer | **NOT BUILT** | *(planned; see HANDOVER §4.1)* |
+| **L8** | Holoscan consumer | **RealSense** | `hsb/` (grafted onto HSB): `D457SIPLCaptureOp` and `examples/d457_sipl_player.py` |
 | **L7** Consumer | `nvsipl_camera` sample | NVIDIA | (SDK sample; on-rig). Usage: `d457-sipl/docs/nvsipl_camera-guide.md`, `tools/d457_live.sh` |
-| **L6** SIPL framework | `libnvsipl.so` | NVIDIA | system lib. Our **lanes 4→2** patch: `sdk-patches/patch_libnvsipl_lanes2.sh` (patches an `LD_LIBRARY_PATH` copy, system lib untouched) |
+| **L6** SIPL framework | `libnvsipl.so` | NVIDIA | system lib, used unmodified. The former lanes 4→2 binary patch is retired; `sdk-patches/restore_libnvsipl_stock.sh` removes a leftover patched copy |
 | **L5** Query DB | `libnvsipl_qry_d457.so` | **RealSense** | `query/d457_query.cpp` (the `D457_Camera` config JSON), `query/CMakeLists.txt`. → `/usr/lib/nvsipl_drv` |
 | **L4** Camera module driver | `libuddf_d457cameramodule_library.so` | **RealSense** | `uddf_driver/D457Library.cpp` (discovery/registration), `D457Module.{hpp,cpp}` (module = sensor + serializer; DS5 I2C owner), `D457Sensor.{hpp,cpp}` (DS5 control: mode/stream/stop/status), `d457_ds5_registers.h` (DS5 register tables) |
 | **L4** Serializer driver | MAX9295 | NVIDIA + **RealSense patch** | stock SDK driver; `sdk-patches/patch_max9295_d457.py` adds the D457 single-link path (stock is HAWK-only / `numSensors==2`) |
-| **L4** Deserializer driver | MAX96712 | NVIDIA + **RealSense patch** | stock SDK driver; `sdk-patches/patch_max96712_d457.py` (2x4-on-PHY1 / 2-lane output + 0x1E→0x2E pixel remap for RGB) |
+| **L4** Deserializer driver | MAX96712 | NVIDIA + **RealSense patch** | stock SDK driver; `sdk-patches/patch_max96712_d457.py` (2x4 port mode on PHY0/1, 4-lane output at 2500 Mbps, + 0x1E→0x2E pixel remap for RGB); the multi-camera build adds `sdk-patches/multicam-patches/` |
 | **L3** HAL / HSL / cdi-mgr | Camera HAL, HSL, `cdi_mgr.ko` | NVIDIA | kernel + HAL. Our **DT overlay** enabling the cdi-mgr binding: `dt/d457-cdi-mgr-overlay.dts` (+ `dt/revert-to-d4xx.sh`, `dt/d4xx-camera.dts.ref`) |
 | **L2** GMSL hardware | DS5/MAX9295A/MAX96712 | hardware | register sequences ported into `d457_ds5_registers.h`; SerDes values in the patch scripts |
 | **L1** Tegra capture | NVCSI / VI | NVIDIA SoC | n/a (configured via L5 transport JSON + L4 deser patch) |
@@ -157,7 +156,7 @@ nvsipl_camera -c D457_Camera
   └─ Init: deser link-locks, MAX9295 detected, DS5 reachable at Physical 0x1A          [L4→L3→L2]
   └─ StartStreaming: sensor 0 writes stop+mode tables for every stream, in one HSL seq  [L4→L3→I2C]
        → DS5 begins emitting depth(0x2E)/rgb(0x1E→0x2E)/ir(0x2E) on VC0/1/2
-  └─ frames flow DS5 → MAX9295 → GMSL2 → MAX96712 → CSI-A → NVCSI(2-lane,594) → VI       [L2→L1]
+  └─ frames flow DS5 → MAX9295 → GMSL2 → MAX96712 → CSI-AB → NVCSI(4-lane,2500) → VI   [L2→L1]
        → DMA into NvSciBuf → ICP raw-capture pool → INvSIPLClient queue → consumer       [L1→L7]
 ```
 
@@ -166,6 +165,7 @@ nvsipl_camera -c D457_Camera
 ## 6. Status anchor
 
 All three streams (depth Z16, RGB YUYV, IR Y8I) capture over SIPL with real content, each delivered
-as RAW16 on its own VC. Remaining work is integration/hardening — the consumer/viewer app, making
-the lanes patch permanent, run-to-run stability (DS5 wedge / PoC power-cycle), and soak. See
-`` §4 for the live punch list.
+as RAW16 on its own VC, over 4 Tegra lanes at 2500 Mbps with the stock `libnvsipl.so`, and the
+Holoscan player shows them. Multi-camera runs (2 cameras x 3 streams, 4 cameras x 2 streams) use
+the `multicam-patches/`. Remaining work is hardening: run-to-run stability (DS5 wedge / PoC
+power-cycle) and soak.

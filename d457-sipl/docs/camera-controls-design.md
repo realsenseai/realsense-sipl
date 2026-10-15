@@ -468,9 +468,7 @@ yet — resolves open question **O2** as a blocker. The structured interface is 
 will work the moment that call returns a provider; until then, controls are driven via the
 driver-side env harness above (binary-agnostic — works with the stock sample).
 
-> ⚠ **Repo integration note:** the `ApplyEnvControls()` call site + the `ReadReg16` fix were applied
-> to the rig's `D457Sensor.cpp` (HEAD generation). The repo working-tree `D457Sensor.cpp` /
-> `d457_ds5_registers.h` were being edited concurrently during this work (newer `m_streamCfgs`/
-> `BuildModeTable` generation), so those two driver-side hooks were **not** folded into the
-> working-tree `D457Sensor.cpp` to avoid clobbering that in-progress work — integrate them there.
+> **Repo integration note:** the `ApplyEnvControls()` call site and the `ReadReg16` fix are in
+> the repo's `D457Sensor.cpp` (sensor 0 calls `ApplyEnvControls()` at the end of
+> `StartStreaming`; `ReadReg16` reads the mux at its physical address).
 ```

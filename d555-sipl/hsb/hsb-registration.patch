@@ -1,0 +1,89 @@
+Register the d555-sipl Holoscan code with HSB 2.7.0 (applied by tools/prepare_hsb.sh d555 after it
+copies d555-sipl/hsb/{src,python,examples} into the tree): the d555_sipl_capture operator in the
+SIPL block, the image_decoder operator and its Python binding, ImageDecoderOp in the operator
+registry, the d555 sensor module, and the d555_sipl_player example.
+
+diff --git a/examples/CMakeLists.txt b/examples/CMakeLists.txt
+index 6ebece5..8c501b5 100644
+--- a/examples/CMakeLists.txt
++++ b/examples/CMakeLists.txt
+@@ -605,6 +605,23 @@ if(HOLOLINK_BUILD_SIPL)
+   )
+ 
+   list(APPEND EXAMPLE_INSTALL_TARGETS sipl_player)
++
++  add_executable(d555_sipl_player
++    d555_sipl_player.cpp
++  )
++
++  target_link_libraries(d555_sipl_player
++    PRIVATE
++      hololink
++      hololink::operators::image_processor
++      hololink::operators::packed_format_converter
++      hololink::operators::d555_sipl_capture
++      holoscan::core
++      holoscan::ops::bayer_demosaic
++      holoscan::ops::holoviz
++  )
++
++  list(APPEND EXAMPLE_INSTALL_TARGETS d555_sipl_player)
+ endif() # HOLOLINK_BUILD_SIPL
+ 
+ if(HOLOLINK_BUILD_SOCKET)
+diff --git a/python/hololink/operators/CMakeLists.txt b/python/hololink/operators/CMakeLists.txt
+index 510ce5a..643a1a6 100644
+--- a/python/hololink/operators/CMakeLists.txt
++++ b/python/hololink/operators/CMakeLists.txt
+@@ -34,6 +34,7 @@ add_subdirectory(csi_to_bayer)
+ if(HOLOLINK_BUILD_FUSA)
+   add_subdirectory(fusa_coe_capture)
+ endif()
++add_subdirectory(image_decoder)
+ add_subdirectory(image_processor)
+ add_subdirectory(iq_dec)
+ add_subdirectory(iq_enc)
+diff --git a/python/hololink/operators/__init__.py b/python/hololink/operators/__init__.py
+index 6ec5394..0db772e 100644
+--- a/python/hololink/operators/__init__.py
++++ b/python/hololink/operators/__init__.py
+@@ -28,6 +28,7 @@ _OBJECTS = {
+     "ComputePvaCrcOp": "pva_crc",
+     "CsiToBayerOp": "csi_to_bayer",
+     "FusaCoeCaptureOp": "fusa_coe_capture",
++    "ImageDecoderOp": "image_decoder",
+     "ImageProcessorOp": "image_processor",
+     "ImageShiftToUint8Operator": "image_shift_to_uint8_operator",
+     "IQDecoderOp": "iq_dec",
+diff --git a/python/hololink/sensors/__init__.py b/python/hololink/sensors/__init__.py
+index ed28448..270bbfd 100644
+--- a/python/hololink/sensors/__init__.py
++++ b/python/hololink/sensors/__init__.py
+@@ -26,6 +26,7 @@ _MODULES = [
+     "imx477",
+     "imx715",
+     "vb1940",
++    "d555",
+ ]
+ 
+ _OBJECTS = {}
+diff --git a/src/hololink/operators/CMakeLists.txt b/src/hololink/operators/CMakeLists.txt
+index a50ddb6..be2c64c 100644
+--- a/src/hololink/operators/CMakeLists.txt
++++ b/src/hololink/operators/CMakeLists.txt
+@@ -55,6 +55,7 @@ add_subdirectory(csi_to_bayer)
+ if(HOLOLINK_BUILD_FUSA)
+   add_subdirectory(fusa_coe_capture)
+ endif()
++add_subdirectory(image_decoder)
+ add_subdirectory(image_processor)
+ add_subdirectory(iq_dec)
+ add_subdirectory(iq_enc)
+@@ -75,6 +76,7 @@ if (HOLOLINK_BUILD_ROCE)
+ endif() # HOLOLINK_BUILD_ROCE
+ if(HOLOLINK_BUILD_SIPL)
+   add_subdirectory(sipl_capture)
++  add_subdirectory(d555_sipl_capture)
+ endif()
+ add_subdirectory(sub_frame_combiner)
+ add_subdirectory(sub_frame_visualizer)

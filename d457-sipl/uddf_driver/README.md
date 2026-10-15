@@ -1,5 +1,11 @@
 # D457 GMSL UDDF camera-module driver — skeleton
 
+> **Status:** this is the original skeleton plan. The driver is implemented and builds as
+> `libuddf_d457cameramodule_library.so`, with multi-stream (depth, RGB and IR on VC0/1/2) and
+> multi-camera support; the TODO list below is resolved except the DS5 identity check in
+> `ProbeHardware` and the FSYNC TX ID. For the current build and layout see `../tools/build_deploy.sh`
+> and `../docs/architecture.md`.
+
 A starting skeleton for the Intel RealSense **D457** as a **GMSL UDDF camera-module driver**
 for NVIDIA SIPL-for-L4T on **Jetson Thor (L4T r39.2 / JetPack 7.2)**. Produces
 `libnvuddf_d457_library.so`, paired at runtime with the stock `MAX9295` serializer and

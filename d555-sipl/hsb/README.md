@@ -1,32 +1,42 @@
 # `d555-sipl/hsb/` — the D555 project's Holoscan Sensor Bridge code
 
 The D555 Holoscan consumers — the `D555SIPLCaptureOp` operator, the image decoder, the CoE players
-and the D555 sensor model — are owned by *this* project rather than by the vendored
-`../../holoscan-sensor-bridge/`. See `../../d457-sipl/hsb/README.md` for why the two projects are
-kept apart; in short, D555 targets **L4T R38** and D457 targets **R39.2**, whose SIPL config APIs
-are mutually exclusive.
-
-D555 is the project that sits naturally on upstream HSB 2.5.0: upstream's own `sipl_capture` is
-written against the same R38 API, so this graft *adds* to upstream rather than disabling parts of it.
+and the D555 sensor model — are owned by this project. `tools/prepare_hsb.sh d555` copies them into
+a Holoscan Sensor Bridge 2.7.0 tree and registers them with `hsb-registration.patch`. The D555
+capture operator targets the L4T R38 SIPL API (`CameraSystemConfig`); see
+`../../d457-sipl/hsb/README.md` for the D457 side, which targets R39.2.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
 | `src/hololink/operators/d555_sipl_capture/` | The C++ SIPL capture operator for the D555 |
-| `src/hololink/operators/image_decoder/` + `python/.../image_decoder/` | The image decoder used by every D555 player |
+| `src/hololink/operators/image_decoder/` + `python/.../image_decoder/` | The image decoder used by the CoE players |
 | `python/hololink/sensors/d555/` | The D555 sensor model and modes |
-| `examples/` | `d555_sipl_player.cpp`, the `linux_coe_*` / `fusa_coe_*` / `linux_d555_*` players, the PeopleNet demos, and `sipl_config/d555_single.json` |
-| `wiring/` | Full replacements for the six HSB files that register the above (operator and sensor registries, CMake, packaging) |
+| `examples/` | `d555_sipl_player.cpp`, the `linux_coe_*` / `fusa_coe_*` players, and `sipl_config/d555_single.json` |
+| `hsb-registration.patch` | Registers the above with HSB 2.7.0: CMake (operators, Python bindings, the player), the operator and sensor registries |
+
+## Camera firmware
+
+The players expect D555 firmware 7.59.0.16345 or later. It sends every CoE stream on channel 4, so
+`linux_coe_d555_player.py` defaults to `--coe-channel 4`, and the dual-stream CoE players do not work
+with it (both streams arrive on the same channel).
+
+The D555 player, dual-stream and PeopleNet examples for HSB's Linux (software RoCE) and RoCE
+receivers live in `../../d555-hsb/`, the same project as `realsense/examples/d555` in the Holoscan
+Sensor Bridge Hub; `../../d555-roce/` has the RoCE test tools.
 
 ## Use
 
 ```sh
-tools/graft_hsb.sh d555 [<hsb-tree>]     # from the repository root
-cmake -S holoscan-sensor-bridge -B build/hsb -DHOLOLINK_BUILD_SIPL=1
-cmake --build build/hsb -j"$(nproc)"
+tools/prepare_hsb.sh d555                # from the repository root; prepares ./holoscan-sensor-bridge
 ```
 
-Verified on `rs-hsb-thor` (L4T R38.4): `sipl_capture`, `d555_sipl_capture`, `image_decoder`,
-`sipl_capture_python`, `image_decoder_python`, `sipl_player` and `d555_sipl_player` all build, with
-no D457 target pulled in.
+then build inside the HSB container as described in the repository README (with
+`-DHOLOLINK_BUILD_SIPL=1 -DHOLOLINK_BUILD_FUSA=1`). SIPL and FuSa runs turn on the Jetson MGBE's
+hardware CoE mode, which takes the AVTP frames the Linux CoE receiver reads from its socket; run the
+Linux CoE player before them, or reboot the host in between.
+
+Verified on `rs-hsb-thor` (Jetson AGX Thor, L4T R38.4, HSB 2.7.0 in `hololink-demo:2.7.0`,
+firmware 7.59.0.16345): the tree builds with no errors, and `d555_sipl_player` (depth and RGB),
+`linux_coe_d555_player.py` and `fusa_coe_d555_player.py` stream 640x360 at 30 fps.

@@ -24,7 +24,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import holoscan
-from cuda import cuda
+import cuda.bindings.driver as cuda
 
 import hololink as hololink_module
 
@@ -188,7 +188,7 @@ def main():
         "--camera-mode-depth",
         type=int,
         choices=mode_depth_choices,
-        default=mode_depth_choices[4], # 1280x720 60fps depth
+        default=mode_depth_choices[4], # 1280x720 30fps depth
         help=mode_help,
     )
     modes_rgb = hololink_module.sensors.d555.d555_mode.RealSense_RGB_Mode
@@ -198,7 +198,7 @@ def main():
         "--camera-mode-rgb",
         type=int,
         choices=mode_rgb_choices,
-        default=mode_rgb_choices[6], # 1280x720 60fps rgb
+        default=mode_rgb_choices[6], # 1280x720 30fps rgb
         help=mode_help,
     )
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
