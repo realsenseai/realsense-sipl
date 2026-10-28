@@ -24,7 +24,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import holoscan
-from cuda import cuda
+import cuda.bindings.driver as cuda
 
 import hololink as hololink_module
 
@@ -138,7 +138,8 @@ class HoloscanApplication(holoscan.core.Application):
         width = self._camera_stream_depth._width
         height = self._camera_stream_depth._height
         stride = width * 2
-        format = hololink_module.sensors.csi.PixelFormat.RAW_12 
+        # Z16 depth and YUYV RGB are both 2 bytes per pixel, with nothing to unpack
+        format = hololink_module.sensors.csi.PixelFormat.RAW_16
         receiver_operator_stream_depth.configure(0, stride, width, height, format, 0)
         
         receiver_operator_stream_rgb = hololink_module.operators.FusaCoeCaptureOp(
@@ -154,7 +155,8 @@ class HoloscanApplication(holoscan.core.Application):
         width = self._camera_stream_rgb._width
         height = self._camera_stream_rgb._height
         stride = width * 2
-        format = hololink_module.sensors.csi.PixelFormat.RAW_12 
+        # Z16 depth and YUYV RGB are both 2 bytes per pixel, with nothing to unpack
+        format = hololink_module.sensors.csi.PixelFormat.RAW_16
         receiver_operator_stream_rgb.configure(0, stride, width, height, format, 0)
 
         left_spec = holoscan.operators.HolovizOp.InputSpec(
@@ -203,7 +205,7 @@ def main():
         "--camera-mode-depth",
         type=int,
         choices=mode_depth_choices,
-        default=mode_depth_choices[4], # 1280x720 60fps depth
+        default=mode_depth_choices[4], # 1280x720 30fps depth
         help=mode_help,
     )
     modes_rgb = hololink_module.sensors.d555.d555_mode.RealSense_RGB_Mode
@@ -213,7 +215,7 @@ def main():
         "--camera-mode-rgb",
         type=int,
         choices=mode_rgb_choices,
-        default=mode_rgb_choices[6], # 1280x720 60fps rgb
+        default=mode_rgb_choices[6], # 1280x720 30fps rgb
         help=mode_help,
     )
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")

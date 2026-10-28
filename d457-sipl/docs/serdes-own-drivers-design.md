@@ -9,6 +9,9 @@ Replace the three runtime edits to NVIDIA's shipped serdes drivers
 register and select, so the bring-up no longer mutates `/usr/src/jetson_sipl_api` and survives
 SDK re-installs. Decide, per device, whether "own driver" is actually cleaner than the patch.
 
+> Update: the `libnvsipl.so` lane-count binary patch this note refers to is retired — the deser now
+> outputs 4 lanes, which is what `csi-ab` gives natively. The original note follows.
+>
 > The `libnvsipl.so` lane-count binary patch (`patch_libnvsipl_lanes2.sh`) is **out of scope** —
 > the lane count is derived inside a precompiled, closed lib (and the deser's own private
 > `SetMipiOutputMode` couples `csiPort → 2x4/4x2` the same way). No driver we write can reach it.

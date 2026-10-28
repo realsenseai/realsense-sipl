@@ -16,15 +16,30 @@
  * limitations under the License.
  */
 
+#include <cstdlib>
+#include <stdexcept>
+#include <string_view>
+
 #include <holoscan/holoscan.hpp>
-#include <holoscan/operators/bayer_demosaic/bayer_demosaic.hpp>
 #include <holoscan/operators/holoviz/holoviz.hpp>
 
 #include <hololink/common/holoargs.hpp>
 #include <hololink/core/logging.hpp>
-#include <hololink/operators/image_processor/image_processor.hpp>
-#include <hololink/operators/packed_format_converter/packed_format_converter.hpp>
 #include <hololink/operators/d555_sipl_capture/d555_sipl_capture.hpp>
+#include <hololink/operators/image_decoder/image_decoder.hpp>
+
+// SIPL reports both D555 streams as RAW16, so the frame layout comes from D555_STREAM, read
+// the same way as the UDDF driver that started the stream (D555ModuleDriver.cpp): depth is Z16,
+// RGB is YUYV.
+static hololink::csi::PixelFormat d555_stream_pixel_format()
+{
+    const char* env = std::getenv("D555_STREAM");
+    const std::string_view value { env != nullptr ? env : "" };
+    if (value == "rgb" || value == "RGB" || value == "color") {
+        return hololink::csi::PixelFormat::YUYV_422_8;
+    }
+    return hololink::csi::PixelFormat::RAW_16;
+}
 
 class Application : public holoscan::Application {
 public:
@@ -90,58 +105,29 @@ public:
             // from SIPL to the vizualizer.
             add_flow(sipl_capture, visualizer, { { "output", "receivers" } });
         } else {
-            // If capturing RAW, we need to do the following between the SIPL capture and Holoviz:
-            //   1) Convert the packed RAW to 16-bit Bayer (PackedFormatConverterOp)
-            //   2) Perform basic ISP operations (ImageProcessorOp)
-            //   3) Demosaic the Bayer to RGB.
-            // These operators only process one buffer each, so each camera needs separate instances.
-            for (uint32_t camera_index = 0; camera_index < camera_info.size(); ++camera_index) {
-                const auto& info = camera_info[camera_index];
-
-                // Convert packed RAW to 16-bit Bayer.
-                const int32_t storage_type_device_memory = 1;
-                const size_t num_blocks = 2;
-                size_t size = info.width * info.height * 2; // 16-bit Bayer
-                auto converter_pool = make_resource<holoscan::BlockMemoryPool>(
-                    fmt::format("converter_pool_{}", info.output_name),
-                    storage_type_device_memory, size, num_blocks);
-
-                auto packed_format_converter = make_operator<hololink::operators::PackedFormatConverterOp>(
-                    fmt::format("packed_format_converter_{}", info.output_name),
-                    Arg("allocator", converter_pool),
-                    Arg("in_tensor_name", info.output_name),
-                    Arg("out_tensor_name", info.output_name));
-                packed_format_converter->configure(
-                    info.offset, info.bytes_per_line, info.width, info.height, info.pixel_format, 0);
-
-                // Perform basic ISP operations.
-                auto image_processor = make_operator<hololink::operators::ImageProcessorOp>(
-                    fmt::format("image_processor_{}", info.output_name),
-                    Arg("optical_black", 0),
-                    Arg("bayer_format", static_cast<int>(info.bayer_format)),
-                    Arg("pixel_format", static_cast<int>(info.pixel_format)));
-
-                // Bayer demosaic to RGBA buffer.
-                size = info.width * info.height * 2 * 4; // 16-bit RGBA
-                auto demosaic_pool = make_resource<holoscan::BlockMemoryPool>(
-                    fmt::format("demosaic_pool_{}", info.output_name),
-                    storage_type_device_memory, size, num_blocks);
-
-                auto bayer_demosaic = make_operator<holoscan::ops::BayerDemosaicOp>(
-                    fmt::format("bayer_demosaic_{}", info.output_name),
-                    Arg("pool", demosaic_pool),
-                    Arg("generate_alpha", true),
-                    Arg("alpha_value", 65535),
-                    Arg("bayer_grid_pos", static_cast<int>(info.bayer_format)),
-                    Arg("in_tensor_name", info.output_name),
-                    Arg("out_tensor_name", info.output_name));
-
-                // Define the application flow.
-                add_flow(sipl_capture, packed_format_converter, { { "output", "input" } });
-                add_flow(packed_format_converter, image_processor, { { "output", "input" } });
-                add_flow(image_processor, bayer_demosaic, { { "output", "receiver" } });
-                add_flow(bayer_demosaic, visualizer, { { "transmitter", "receivers" } });
+            // The D555 sends no Bayer data, so the RAW frames go to ImageDecoder, as in the CoE
+            // players: it colorizes Z16 depth and converts YUYV to RGB. ImageDecoder reads the
+            // first tensor of its input and D555_STREAM sets one format, so one camera per run.
+            if (camera_info.size() != 1) {
+                throw std::runtime_error(fmt::format(
+                    "camera config has {} cameras; the D555 player shows one", camera_info.size()));
             }
+            const auto pixel_format = d555_stream_pixel_format();
+            const auto& info = camera_info[0];
+            auto image_decoder = make_operator<hololink::operators::ImageDecoder>(
+                fmt::format("image_decoder_{}", info.output_name),
+                Arg("allocator", make_resource<holoscan::UnboundedAllocator>(
+                                     fmt::format("decoder_pool_{}", info.output_name))),
+                Arg("cuda_device_ordinal", 0),
+                Arg("out_tensor_name", info.output_name),
+                Arg("align_depth_to_rgb", false));
+            // SIPL pads each line to its pitch; the decoder skips the padding as line-end bytes.
+            const uint32_t line_bytes = info.width * 2;
+            const uint32_t line_end = info.bytes_per_line > line_bytes ? info.bytes_per_line - line_bytes : 0;
+            image_decoder->configure(info.width, info.height, pixel_format, info.offset, 0, 0, line_end);
+
+            add_flow(sipl_capture, image_decoder, { { "output", "input" } });
+            add_flow(image_decoder, visualizer, { { "output", "receivers" } });
         }
     }
 

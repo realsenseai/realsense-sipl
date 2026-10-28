@@ -1,0 +1,55 @@
+Register the d457-sipl Holoscan code with HSB 2.7.0 (applied by tools/prepare_hsb.sh d457 after it
+copies d457-sipl/hsb/{src,python,examples} into the tree): the d457_sipl_capture operator and its
+Python binding in the SIPL block, D457SIPLCaptureOp in the operator registry, and the two D457
+Python examples. Unlike HSB 2.5.0, upstream's sipl_capture builds on L4T R39.2 in 2.7.0, so it is
+left enabled.
+
+diff --git a/examples/CMakeLists.txt b/examples/CMakeLists.txt
+index 6ebece5..c726749 100644
+--- a/examples/CMakeLists.txt
++++ b/examples/CMakeLists.txt
+@@ -796,6 +796,8 @@ if(HOLOLINK_BUILD_FUSA)
+ endif() # HOLOLINK_BUILD_FUSA
+ if(HOLOLINK_BUILD_SIPL)
+   list(APPEND EXAMPLE_INSTALL_FILES sipl_player.py)
++  list(APPEND EXAMPLE_INSTALL_FILES d457_sipl_player.py)
++  list(APPEND EXAMPLE_INSTALL_FILES d457_tao_peoplenet.py)
+ endif() # HOLOLINK_BUILD_SIPL
+ endif() # HOLOLINK_BUILD_PYTHON
+ 
+diff --git a/python/hololink/operators/CMakeLists.txt b/python/hololink/operators/CMakeLists.txt
+index 510ce5a..be21d73 100644
+--- a/python/hololink/operators/CMakeLists.txt
++++ b/python/hololink/operators/CMakeLists.txt
+@@ -53,6 +53,7 @@ if (HOLOLINK_BUILD_ROCE)
+ endif() # HOLOLINK_BUILD_ROCE
+ if(HOLOLINK_BUILD_SIPL)
+   add_subdirectory(sipl_capture)
++  add_subdirectory(d457_sipl_capture)
+ endif()
+ add_subdirectory(sub_frame_combiner)
+ add_subdirectory(udp_transmitter)
+diff --git a/python/hololink/operators/__init__.py b/python/hololink/operators/__init__.py
+index 6ec5394..d0a1ad3 100644
+--- a/python/hololink/operators/__init__.py
++++ b/python/hololink/operators/__init__.py
+@@ -47,6 +47,7 @@ _OBJECTS = {
+     "SignalViewerOp": "sig_viewer",
+     "SIPLCaptureService": "sipl_capture",
+     "SIPLCameraOutputOp": "sipl_capture",
++    "D457SIPLCaptureOp": "d457_sipl_capture",
+     "SubFrameCombinerOp": "sub_frame_combiner",
+     "UdpTransmitterOp": "udp_transmitter",
+ }
+diff --git a/src/hololink/operators/CMakeLists.txt b/src/hololink/operators/CMakeLists.txt
+index a50ddb6..086c618 100644
+--- a/src/hololink/operators/CMakeLists.txt
++++ b/src/hololink/operators/CMakeLists.txt
+@@ -75,6 +75,7 @@ if (HOLOLINK_BUILD_ROCE)
+ endif() # HOLOLINK_BUILD_ROCE
+ if(HOLOLINK_BUILD_SIPL)
+   add_subdirectory(sipl_capture)
++  add_subdirectory(d457_sipl_capture)
+ endif()
+ add_subdirectory(sub_frame_combiner)
+ add_subdirectory(sub_frame_visualizer)

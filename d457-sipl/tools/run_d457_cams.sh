@@ -95,32 +95,35 @@ else
     say "Stage $STAGE: --skip-deploy, reusing whatever profile is currently installed"
 fi
 
-say "syncing the Holoscan capture op + player to the rig, and rebuilding there"
-# Graft this project's HSB overlay onto the rig's HSB checkout, then rebuild the two targets in the
-# demo container (CUDA/nvcc are only on its PATH). tools/graft_hsb.sh operates on a local tree, so
-# copy the overlay across first and run it there.
-#
-# _graft is wiped first: it is pure staging, and reusing it grafted stale sources from the second run
-# onward. `mv -f d457-sipl-hsb repo/d457-sipl/hsb` moves the source INSIDE an existing destination
-# rather than replacing it, so graft_hsb.sh then copied the previous run's overlay and reported
-# success -- and the `2>/dev/null || true` hid it. Same class as the PyHSL cache staleness below.
-"${SSH[@]}" "rm -rf '$RIG_HSB/_graft' && mkdir -p '$RIG_HSB/_graft'"
-"${SCP[@]}" -q -r "$REPO/d457-sipl/hsb/." "$RIG_USER@$RIG_HOST:$RIG_HSB/_graft/d457-sipl-hsb/"
-"${SCP[@]}" -q "$REPO/tools/graft_hsb.sh" "$RIG_USER@$RIG_HOST:$RIG_HSB/_graft/graft_hsb.sh"
-"${SSH[@]}" "set -e
-    cd '$RIG_HSB/_graft'
-    mkdir -p repo/d457-sipl && mv d457-sipl-hsb repo/d457-sipl/hsb
-    mkdir -p repo/tools && cp -f graft_hsb.sh repo/tools/
-    bash repo/tools/graft_hsb.sh d457 '$RIG_HSB'"
+say "syncing the d457 HSB code to the rig, preparing its HSB 2.7.0 tree and rebuilding there"
+# tools/prepare_hsb.sh runs on the rig against $RIG_HSB: it clones HSB 2.7.0 there if the tree is
+# missing, applies hsb-patches/ and the d457 registration patch once, and copies the project sources
+# again on every run. It refuses a tree at another HSB commit -- a tree from before the move to
+# HSB 2.7.0 has to be moved aside first. The staging copy is wiped first so a previous run's sources
+# are never picked up.
+STAGE_DIR=/home/$RIG_USER/realsense-sipl-stage
+"${SSH[@]}" "rm -rf '$STAGE_DIR' && mkdir -p '$STAGE_DIR/d457-sipl' '$STAGE_DIR/tools'"
+"${SCP[@]}" -q -r "$REPO/d457-sipl/hsb" "$RIG_USER@$RIG_HOST:$STAGE_DIR/d457-sipl/"
+"${SCP[@]}" -q -r "$REPO/hsb-patches" "$RIG_USER@$RIG_HOST:$STAGE_DIR/"
+"${SCP[@]}" -q "$REPO/tools/prepare_hsb.sh" "$RIG_USER@$RIG_HOST:$STAGE_DIR/tools/"
+"${SSH[@]}" "bash '$STAGE_DIR/tools/prepare_hsb.sh' d457 '$RIG_HSB'"
+"${SSH[@]}" "docker image inspect hololink-demo:2.7.0 >/dev/null 2>&1" \
+    || die "no hololink-demo:2.7.0 image on the rig: run 'sh docker/build.sh --igpu' in $RIG_HSB once"
 "${SSH[@]}" "cat > '$RIG_HSB/_d457_build.sh'" <<'REMOTE'
 #!/bin/bash
 set -e
-cd build
-cmake --build . --target d457_sipl_capture -j4
-cmake --build . --target d457_sipl_capture_python -j4
+# demo.sh mounts $HOME, so a global https->ssh insteadOf rewrite would stall CMake's dependency
+# downloads at an SSH prompt.
+export GIT_CONFIG_GLOBAL=/dev/null
+[ -f build/CMakeCache.txt ] || cmake -S . -B build \
+    -DCCCL_DIR:PATH=/usr/local/cuda/targets/sbsa-linux/lib/cmake/cccl -DHOLOLINK_BUILD_SIPL=1
+# Every target: the player imports the tree's core modules (_hololink, _hololink_core) too, and a
+# fresh tree has none of them built.
+cmake --build build -j4
 REMOTE
+# Keep the build's exit status, so a failed build stops here under set -e.
 ssh -tt -o BatchMode=yes -i "$RIG_KEY" "$RIG_USER@$RIG_HOST" \
-    "cd '$RIG_HSB' && sh docker/demo.sh bash _d457_build.sh; rm -f _d457_build.sh"
+    "cd '$RIG_HSB' && { sh docker/demo.sh bash _d457_build.sh; rc=\$?; rm -f _d457_build.sh; exit \$rc; }"
 
 # ── launch ──────────────────────────────────────────────────────────────────────────────────────
 PLAYER_ARGS=(--camera-config D457_Camera --link-mask "$MASK" --depth-colormap "$DEPTH_COLORMAP")
@@ -140,12 +143,13 @@ PLAY_SCRIPT="$RIG_HSB/_d457_play_stage${STAGE}.sh"
     # bump to TRACE (noisy: full GXF component trace too) to see per-frame "Got buffer" lines when
     # verifying actual frame flow, not just successful setup.
     echo "export HOLOSCAN_LOG_LEVEL=\${D457_HSB_LOG_LEVEL:-DEBUG}"
-    # `docker run --rm` discards any in-container fix, so the freshly built op .so (which the graft+build step
-    # just rebuilt into $RIG_HSB/build, bind-mounted) must be re-copied over the demo image's baked-in
-    # dist-packages copy EVERY launch, in this SAME container invocation
-    # comment for the full story. Without this the player silently runs a stale compiled operator.
-    echo "cp build/python/lib/operators/d457_sipl_capture/_d457_sipl_capture.cpython-312-aarch64-linux-gnu.so \\"
-    echo "   /usr/local/lib/python3.12/dist-packages/hololink/operators/d457_sipl_capture/"
+    # Run against the tree just built, not the hololink baked into the demo image: a symlink overlay
+    # of the Python sources plus the compiled modules (what installing the wheel would merge), put
+    # first on PYTHONPATH. Rebuilt every launch, so it always matches $RIG_HSB/build.
+    echo "rm -rf _pyroot && mkdir -p _pyroot/hololink"
+    echo "cp -rs '$RIG_HSB/python/hololink/.' _pyroot/hololink/"
+    echo "cp -rsf '$RIG_HSB/build/python/lib/hololink/.' _pyroot/hololink/"
+    echo "export PYTHONPATH='$RIG_HSB/_pyroot'\${PYTHONPATH:+:\$PYTHONPATH}"
     # (No LD_LIBRARY_PATH=~/sipl_libs any more: the lanes=2 libnvsipl binary patch is retired now
     # that the deser drives 4 lanes -- csi-ab's native 4 Tegra lanes are what we want. See
     # sdk-patches/restore_libnvsipl_stock.sh.)
