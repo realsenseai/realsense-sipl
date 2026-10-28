@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, RealSense AI. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Python packages the examples import, at the versions in the HSB 2.7.0 container
+# (hololink-demo:2.7.0), which already has them. Holoscan SDK 4.4.0 and hololink come with HSB.
+cupy-cuda13x==14.2.0
+cuda-python==13.4.1

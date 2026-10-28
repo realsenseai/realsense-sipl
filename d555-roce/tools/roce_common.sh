@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # SPDX-License-Identifier: Apache-2.0
 # Copyright(c) 2026 RealSense, Inc. All Rights Reserved.
 # Shared settings and helpers for the D555e RoCE scripts (sourced, POSIX sh).
@@ -9,7 +10,8 @@ GPU=${GPU:-}                # CUDA_VISIBLE_DEVICES value; a dGPU UUID = GPUDirec
 EXTRA=${EXTRA:-}            # extra app arguments, e.g. "--stats-every 0"
 OUT=${OUT:-rs/results}
 mkdir -p "$OUT"
-failed=0                    # callers: line=$(results "$log") || failed=1; exit "$failed"
+# shellcheck disable=SC2034  # read and set by the scripts that source this file
+failed=0                   # callers: line=$(results "$log") || failed=1; exit "$failed"
 
 rdma_packets() { ethtool -S "$IF" | awk '/rx_vport_rdma_unicast_packets/ {print $2}'; }
 
@@ -20,6 +22,7 @@ run_app() {
     log=$1
     shift
     rm -f "$log" "$log.docker"
+    # shellcheck disable=SC2024  # $log.docker is written as the calling user on purpose, not root
     sudo sh docker/demo.sh sh -c \
         "python3 rs/$* --ibv-name $IBV ${GPU:+--gpu $GPU} $EXTRA > $log 2>&1" >"$log.docker" 2>&1
     app_status=$?

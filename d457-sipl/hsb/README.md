@@ -1,25 +1,22 @@
 # `d457-sipl/hsb/` — the D457 project's Holoscan Sensor Bridge code
 
 The D457 Holoscan consumer — the `D457SIPLCaptureOp` operator, its Python binding and the player
-apps — belongs to the HSB tree at build time, but is owned by *this* project, not by the vendored
-`../../holoscan-sensor-bridge/`.
+apps — is owned by this project. `tools/prepare_hsb.sh d457` copies it into a Holoscan Sensor Bridge
+2.7.0 tree and registers it with `hsb-registration.patch`.
 
-## Why it lives here
+## Why one project per HSB tree
 
 `d457-sipl` (D457 over GMSL) and `d555-sipl` (D555 over CoE) are independent projects that share
-this repository, and they target **incompatible SIPL APIs**:
+this repository, and their capture operators target different SIPL API generations:
 
 | Project | Jetson release | SIPL config API |
 | --- | --- | --- |
-| `d555-sipl` | L4T **R38** | `CameraSystemConfig` / `GetCameraSystemConfig` — what upstream HSB 2.5.0 is written against |
+| `d555-sipl` | L4T **R38** | `CameraSystemConfig` / `GetCameraSystemConfig` |
 | `d457-sipl` | L4T **R39.2** | `sensorconfig::SensorSystemConfig`, which replaced it |
 
-Because of that, building D457 requires *disabling* upstream's own `sipl_capture` operator and the
-C++ `sipl_player` — edits that would break the D555 project if they were made in a shared tree.
-They previously stayed apart because each project had its own superproject branch pinning the HSB
-submodule to its own HSB branch (`d457-holoscan-sipl` vs `main-2.5.0`), so the two wirings never
-met. With both projects merged into one master that isolation is gone, so each project keeps its
-Holoscan code — and its own copy of the shared files it must replace — here instead.
+HSB 2.7.0's own `sipl_capture` builds against both (it selects the API at compile time), so unlike
+HSB 2.5.0 nothing upstream has to be disabled for D457. The two capture operators still do not build
+against each other's API, so an HSB tree is prepared for one project at a time.
 
 ## Layout
 
@@ -28,16 +25,24 @@ Holoscan code — and its own copy of the shared files it must replace — here 
 | `src/hololink/operators/d457_sipl_capture/` | The C++ capture operator: RAW16-only (no Tegra ISP), N-pipeline, one acquire thread per pipeline, multi-camera via `link_mask` + `apply_link_offsets()` |
 | `python/hololink/operators/d457_sipl_capture/` | The pybind11 binding |
 | `examples/` | `d457_sipl_player.py` (the grid-tiled multi-stream player) and `d457_tao_peoplenet.py` |
-| `wiring/` | Full replacements for the four HSB files that must register the above — derived from upstream 2.5.0 plus this project's entries only, so they never reference D555 code |
+| `hsb-registration.patch` | Registers the above with HSB 2.7.0: the operator and binding in the SIPL block, `D457SIPLCaptureOp` in the operator registry, the two examples |
 
 ## Use
 
+From the repository root (the D457 drivers and query plugin must be installed for SIPL):
+
 ```sh
-tools/graft_hsb.sh d457 [<hsb-tree>]     # from the repository root; defaults to ./holoscan-sensor-bridge
-cmake -S holoscan-sensor-bridge -B build/hsb -DHOLOLINK_BUILD_SIPL=1
-cmake --build build/hsb -j"$(nproc)"
+tools/prepare_hsb.sh d457
+tools/hsb.sh build
+sudo i2cset -y 9 0x28 0x01 0x00; sleep 3; sudo i2cset -y 9 0x28 0x01 0x1f; sleep 2   # power-cycle the DS5
+tools/hsb.sh shell
+# inside the container, in the HSB tree:
+python3 examples/d457_sipl_player.py --camera-config D457_Camera --frame-limit 900
 ```
 
-Graft one project at a time — the script refuses to stack the other on top. Verified on
-`fw-advantech-thor-1` (L4T R39.2): `d457_sipl_capture` and its Python binding build, with no D555
-target pulled in.
+The player shows depth (as a colour map), RGB and IR side by side; `--stream depth|rgb|ir` shows one.
+It takes a few seconds before the first frames. Power-cycle the DS5 before each run.
+`tools/run_d457_cams.sh` prepares the rig's HSB tree with `prepare_hsb.sh` for the multi-camera runs.
+
+Verified on `fw-advantech-thor-1` (Jetson AGX Thor, L4T R39.2, HSB 2.7.0 in `hololink-demo:2.7.0`):
+the tree builds with no errors, and `d457_sipl_player.py` streams depth, RGB and IR from one D457.
