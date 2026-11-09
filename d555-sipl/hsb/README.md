@@ -25,9 +25,9 @@ capture operator targets the L4T R38 SIPL API (`CameraSystemConfig`); see
 
 `linux_coe_d555_player.py` defaults to `--coe-channel 4`, which works with all three.
 
-The dual-stream CoE players default to 1280x720 on both streams. That is over the camera's CoE limit
-of about 30k packets/s per stream (1280x720 at 30 fps needs about 39k), on every firmware. Pass
-`--camera-mode-depth 8 --camera-mode-rgb 10` for 640x360 at 30 fps.
+The dual-stream CoE players default to 640x360 at 30 fps on both streams. 1280x720 at 30 fps
+(`--camera-mode-depth 4 --camera-mode-rgb 6`) is over the camera's CoE limit of about 30k packets/s
+per stream (it needs about 39k), on every firmware.
 
 A CoE run that fails to stop leaves the camera's stream marked as running, and the next start gets
 no frames. Reboot the camera (`reboot` on its UART console, or a power cycle) before the next run.

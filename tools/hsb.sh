@@ -46,11 +46,14 @@ shell)
     shift
     [ -d "$PYROOT/hololink" ] || die "no $PYROOT; run tools/hsb.sh build first"
     [ "$#" -gt 0 ] || set -- bash
-    # The container runs as root: let it open windows on this desktop.
-    if [ -n "${DISPLAY:-}" ] && command -v xhost > /dev/null; then
-        xhost +local: > /dev/null
+    # The container runs as root: let root, and no other local user, open windows on this desktop
+    # while it runs, and take that back on exit unless root already had it.
+    if [ -n "${DISPLAY:-}" ] && command -v xhost > /dev/null \
+        && ! xhost | grep -qix 'SI:localuser:root'; then
+        xhost +si:localuser:root > /dev/null
+        trap 'xhost -si:localuser:root > /dev/null' EXIT
     fi
-    exec sh docker/demo.sh --name="${NAME:-hsb}" env PYTHONPATH="$PYROOT" "$@"
+    sh docker/demo.sh --name="${NAME:-hsb}" env PYTHONPATH="$PYROOT" "$@"
     ;;
 *)
     sed -n '/^# USAGE/,/^# players/p' "$0" | sed 's/^# \{0,1\}//' >&2

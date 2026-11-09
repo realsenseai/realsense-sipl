@@ -44,7 +44,7 @@ if [ "$running_geom" != "$GEOM" ]; then
         -rfbport ${VNC_PORT} -AlwaysShared > "$HOME/xvnc.log" 2>&1 &
     sleep 3
 fi
-DISPLAY=${VNC_DISPLAY} xhost +local: >/dev/null 2>&1 || true
+DISPLAY=${VNC_DISPLAY} xhost +si:localuser:root >/dev/null 2>&1 || true
 echo "[vnc] view: tunnel ${VNC_PORT}, then VNC viewer -> localhost:${VNC_PORT} (password: the VNC_PW you set)"
 echo "[vnc] desktop ${GEOM} (reconnect your VNC viewer if it was open before this resize)"
 

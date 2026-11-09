@@ -187,7 +187,7 @@ if [ "\$running_geom" != "$VNC_GEOM" ]; then
         -rfbport ${VNC_PORT} -AlwaysShared > "\$HOME/xvnc.log" 2>&1 &
     sleep 3
 fi
-DISPLAY=${VNC_DISPLAY} xhost +local: >/dev/null 2>&1 || true
+DISPLAY=${VNC_DISPLAY} xhost +si:localuser:root >/dev/null 2>&1 || true
 EOF
     say "view: ssh -L ${VNC_PORT}:localhost:${VNC_PORT} $RIG_USER@$RIG_HOST, then VNC viewer -> localhost:${VNC_PORT} (password: the VNC_PW you set)"
     say "launching player (Stage $STAGE, mask $MASK, ${WIDTH}x${HEIGHT}) on $VNC_DISPLAY ... Ctrl-C to stop"

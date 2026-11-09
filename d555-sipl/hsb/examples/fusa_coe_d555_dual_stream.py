@@ -205,7 +205,7 @@ def main():
         "--camera-mode-depth",
         type=int,
         choices=mode_depth_choices,
-        default=mode_depth_choices[4], # 1280x720 30fps depth
+        default=mode_depth_choices[8], # 640x360 30fps depth; 1280x720 is over the CoE limit
         help=mode_help,
     )
     modes_rgb = hololink_module.sensors.d555.d555_mode.RealSense_RGB_Mode
@@ -215,7 +215,7 @@ def main():
         "--camera-mode-rgb",
         type=int,
         choices=mode_rgb_choices,
-        default=mode_rgb_choices[6], # 1280x720 30fps rgb
+        default=mode_rgb_choices[10], # 640x360 30fps rgb; 1280x720 is over the CoE limit
         help=mode_help,
     )
     parser.add_argument("--headless", action="store_true", help="Run in headless mode")
