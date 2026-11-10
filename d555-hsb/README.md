@@ -54,7 +54,7 @@ On IGX Thor, `--receiver roce` uses the first RDMA device unless `--ibv-name` na
 
 ## Setup
 
-1. **Camera firmware.** The examples need the D555 HSB firmware, 7.58.46389.16966 (recommended) or 7.59.0.16345. Flash it over USB, not Ethernet: connect the camera to the host over USB, so it runs in USB mode, and use `rs-fw-update` from [librealsense](https://github.com/realsenseai/librealsense) (`rs-fw-update -l` lists the camera and its firmware version, `rs-fw-update -f <image>.bin` flashes it). After a reboot with an Ethernet link, the camera boots in Ethernet mode at `192.168.0.2`.
+1. **Camera firmware.** The examples need D555 firmware with HSB support; the versions they were tested with are listed under [Tested Configuration](#tested-configuration). Flash it over USB, not Ethernet: connect the camera to the host over USB, so it runs in USB mode, and use `rs-fw-update` from [librealsense](https://github.com/realsenseai/librealsense) (`rs-fw-update -l` lists the camera and its firmware version, `rs-fw-update -f <image>.bin` flashes it). After a reboot with an Ethernet link, the camera boots in Ethernet mode at `192.168.0.2`.
 
 2. **Host network.** Give the host interface facing the camera an address on the camera's subnet, for example on a Jetson AGX Thor:
 
