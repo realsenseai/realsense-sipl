@@ -150,7 +150,7 @@ With a display, `d555_player.py` shows the colorized depth (blue near, red far, 
 - **Bandwidth.** The camera sends at most about 500 Mbps of payload. At 30 fps that is depth and RGB together up to 896x504, or one stream at 1280x720. The examples refuse stream sets above the limit unless `--allow-overload` is given.
 - **RGB 1280x800** (firmware profiles 4 and 5) is refused by the camera, so the examples do not offer it.
 - **Dual stream** runs both streams at the same frame rate: the viewer draws a frame from each together.
-- **Stopping.** A stream stop is sent once and never retried, because a repeated stop leaves the camera refusing new profiles until it is power-cycled. If an example reports `stream stop was not acknowledged`, power-cycle the camera before the next run.
+- **Start and stop.** Each is sent once and never retried, because the camera counts a repeated command twice: two starts leave the stream running after one stop, and two stops make it refuse new profiles, until it is power-cycled. If an example reports `stream start was not acknowledged` or `stream stop was not acknowledged`, power-cycle the camera before the next run.
 - **Frame limit.** `--frame-limit` counts receiver ticks, which also pass once a second while no frame arrives, so a stream that never starts ends after that many seconds and fails.
 - **Not covered here:** the camera's IMU stream, depth-to-RGB alignment, and the Camera-over-Ethernet (IEEE 1722) and SIPL capture paths.
 - The firmware is an early-access preview, not validated for production.
