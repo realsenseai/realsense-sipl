@@ -8,8 +8,9 @@ Bridge (HSB)**, covering two independent camera paths:
 | **D457 over GMSL** | RealSense D457 (DS5 ASIC + OV9282) | MAX9295A serializer → MAX96712 deserializer → Tegra CSI | `d457-sipl/` |
 | **D555 over CoE** | RealSense D555 (HKR SoC) | Camera-over-Ethernet via the Holoscan Sensor Bridge | `d555-sipl/` |
 
-Both deliver frames to Holoscan applications through the vendored
-[`holoscan-sensor-bridge/`](holoscan-sensor-bridge/).
+Both deliver frames to Holoscan applications through NVIDIA's
+[Holoscan Sensor Bridge](https://github.com/nvidia-holoscan/holoscan-sensor-bridge) 2.7.0, which
+`tools/prepare_hsb.sh` sets up with the small patches in [`hsb-patches/`](hsb-patches/README.md).
 
 ![depth](resources/depth.png)
 
@@ -25,30 +26,31 @@ from the other's configuration:
 
 | Project | Jetson release | SIPL config API | Rig |
 | --- | --- | --- | --- |
-| `d555-sipl` | L4T **R38** | `CameraSystemConfig` — the API upstream HSB 2.5.0 targets | `rs-hsb-thor` |
+| `d555-sipl` | L4T **R38** | `CameraSystemConfig` | `rs-hsb-thor` |
 | `d457-sipl` | L4T **R39.2** | `sensorconfig::SensorSystemConfig`, which replaced it | `fw-advantech-thor-1` |
 
-`holoscan-sensor-bridge/` is therefore kept at (near) upstream 2.5.0 and carries **no
-camera-specific code**. Each project keeps its own Holoscan operators, examples and wiring under
-`<project>/hsb/`, and `tools/graft_hsb.sh` overlays exactly one of them onto an HSB checkout before
-building:
+HSB 2.7.0 builds against both APIs, but each project's capture operator targets one of them, so an
+HSB tree is set up for one project at a time. HSB itself is not vendored: `tools/prepare_hsb.sh`
+clones the pinned 2.7.0 release, applies the shared patches in `hsb-patches/`, copies in the
+project's Holoscan code from `<project>/hsb/`, and registers it with that project's
+`hsb-registration.patch`:
 
 ```sh
-tools/graft_hsb.sh d457      # or: d555
-tools/graft_hsb.sh --check   # report which project is currently grafted
+tools/prepare_hsb.sh d555      # or: d457; prepares ./holoscan-sensor-bridge (ignored by git)
+tools/prepare_hsb.sh --check   # report the HSB version and the project prepared
 ```
 
-Graft one project at a time; the script refuses to stack one on the other. This is the
-single-repository equivalent of how the projects used to be kept apart — one superproject branch
-each, pinning the HSB submodule to a different HSB branch.
+The script is safe to re-run (it copies the project sources again and skips what is already
+applied) and refuses a tree prepared for the other project.
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
 | `d457-sipl/` | **D457 over GMSL (R39.2).** The SIPL/UDDF camera-module driver, query plugin, cdi-mgr device-tree overlay, DS5 register tables, SerDes SDK patches, its Holoscan code in `hsb/`, rig tools and tests |
-| `holoscan-sensor-bridge/` | Vendored NVIDIA Holoscan Sensor Bridge 2.5.0 (Apache-2.0), kept near upstream — shared infrastructure only, no camera-specific code — see [`REALSENSE-FORK-NOTICE.md`](holoscan-sensor-bridge/REALSENSE-FORK-NOTICE.md) |
+| `hsb-patches/` | Patches against the pinned Holoscan Sensor Bridge release (RAW_16 pixel format, SIPL driver mounts for the demo container); see [`hsb-patches/README.md`](hsb-patches/README.md) |
 | `d555-sipl/` | **D555 over CoE (R38).** The UDDF module/sensor drivers, the CoE/HSB transport, its PyHSL sequences, and its Holoscan code in `hsb/` |
+| `d555-hsb/` | **D555 over Ethernet on stock HSB 2.7.** Player, dual-stream and PeopleNet examples with `--receiver linux` (software receiver, e.g. the Thor's MGBE) or `--receiver roce` (ConnectX); pure Python, no graft. The same project as `realsense/examples/d555` in the Holoscan Sensor Bridge Hub; see [`d555-hsb/README.md`](d555-hsb/README.md) |
 | `d555-roce/` | **D555 over RoCEv2.** Host apps and test tools that receive the D555e's RoCEv2 frames with the stock HSB 2.7 `RoceReceiverOp` on an RDMA NIC (ConnectX-7), into host memory or GPU VRAM; no SIPL, no graft — see [`d555-roce/README.md`](d555-roce/README.md) |
 | `resources/` | Screenshots and misc assets |
 
@@ -91,18 +93,23 @@ Camera SIPL SDK is not vendored — the build uses the copy installed on the dev
 
 ### Holoscan Sensor Bridge
 
-Built inside the HSB container (`hololink-demo:2.5.0`):
+Prepare the tree for one project, build the HSB container once
+([HSB build guide](https://docs.nvidia.com/holoscan/sensor-bridge/getting-started/build)), then build
+inside it:
 
 ```sh
-cd holoscan-sensor-bridge
-sh docker/demo.sh bash -c '
-  cmake -S . -B build -DCCCL_DIR:PATH=/usr/local/cuda/targets/sbsa-linux/lib/cmake/cccl -DHOLOLINK_BUILD_SIPL=1 &&
-  cmake --build build -j"$(nproc)"'
+tools/prepare_hsb.sh d555                 # or: d457
+(cd holoscan-sensor-bridge && sh docker/build.sh --igpu)   # once per HSB release: hololink-demo:2.7.0
+tools/hsb.sh build                        # SIPL and FuSa on; links build/pyroot
+tools/hsb.sh shell                        # the container in the HSB tree, ready to run the players
 ```
 
-Graft a project first (`tools/graft_hsb.sh d457` or `d555`) — the tree itself carries no camera
-code. See `holoscan-sensor-bridge/docs/user_guide/thor-jp7-setup.md` for the full
-device-setup prerequisites.
+The `hololink-demo` image has the stock `hololink` Python package, without this project's
+operators and sensors. `tools/hsb.sh build` therefore also links `build/pyroot`, the tree's Python
+sources merged with the modules it compiled, and `tools/hsb.sh shell` sets `PYTHONPATH` to it. Run
+`shell` from a terminal on the device's desktop to see the players' windows. A `git pull` that
+changes a `hsb-registration.patch` needs a fresh tree: remove `holoscan-sensor-bridge/` and prepare
+again.
 
 ---
 
@@ -126,7 +133,7 @@ This repository is Apache-2.0 — see [`LICENSE`](LICENSE). Third-party code kee
 
 | Path | License |
 | --- | --- |
-| `holoscan-sensor-bridge/` | Apache-2.0 — a modified snapshot of NVIDIA's Holoscan Sensor Bridge, retaining its `LICENSE` and copyright headers ([fork notice](holoscan-sensor-bridge/REALSENSE-FORK-NOTICE.md)) |
+| `hsb-patches/`, `*/hsb/hsb-registration.patch` | Apache-2.0; changes to NVIDIA's Holoscan Sensor Bridge, which is not included here |
 | `d555-sipl/hololink/core/` | Apache-2.0 — NVIDIA, from the Holoscan Sensor Bridge |
 | `d555-sipl/fmt/` | MIT — [fmtlib/fmt](https://github.com/fmtlib/fmt) |
 

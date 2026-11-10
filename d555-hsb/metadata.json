@@ -1,0 +1,42 @@
+{
+	"application": {
+		"name": "RealSense D555",
+		"description": "Stream RealSense D555 depth and RGB over Ethernet with Holoscan Sensor Bridge: single-stream and dual-stream players and TAO PeopleNet detection.",
+		"authors": [
+			{
+				"name": "Ashraf Kattoura",
+				"affiliation": "RealSense AI"
+			}
+		],
+		"language": "Python",
+		"version": "1.0.0",
+		"changelog": {
+			"1.0.0": "Initial release: player, dual-stream and PeopleNet examples on HSB 2.7.0"
+		},
+		"holoscan_sdk": {
+			"minimum_required_version": "4.4.0",
+			"tested_versions": [
+				"4.4.0"
+			]
+		},
+		"platforms": [
+			"aarch64"
+		],
+		"tags": [
+			"Camera",
+			"Sensor Bridge",
+			"RealSense",
+			"Depth",
+			"RoCE"
+		],
+		"ranking": 3,
+		"requirements": {
+			"hardware": [
+				{
+					"name": "RealSense D555",
+					"description": "D555 with the Holoscan Sensor Bridge firmware (7.58.46389.16966 or 7.59.0.16345), connected to the host over Ethernet."
+				}
+			]
+		}
+	}
+}

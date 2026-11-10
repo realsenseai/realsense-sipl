@@ -46,7 +46,7 @@ cp d457-sipl/uddf_driver/D457Sensor.{cpp,hpp} d457-sipl/uddf_driver/D457Module.{
 *in the SDK tree*; idempotent — they no-op if already applied, and need a **stock** HSL to match):
 ```bash
 python3 d457-sipl/sdk-patches/patch_max9295_d457.py  $SIPL   # serializer: single-link + pipe-per-VC
-python3 d457-sipl/sdk-patches/patch_max96712_d457.py $SIPL   # deser: 2x4/2-lane PHY + pipe-per-VC map
+python3 d457-sipl/sdk-patches/patch_max96712_d457.py $SIPL   # deser: 2x4 port mode, 4-lane PHY + pipe-per-VC map
 ```
 > ⚠️ The rig's HSL tree is already patched/hand-edited (pipe-per-VC etc.). Re-running the scripts
 > there is a no-op; to reproduce from scratch, extract a **stock** `Jetson_SIPL_API_R39.2.0` first.
@@ -75,7 +75,7 @@ sudo cp /tmp/libnvsipl_qry_d457.so                                           /us
 
 **2. No `libnvsipl` patch.** The stock system lib is used. Historically a COPY in `~/sipl_libs/` was
 binary-patched to force Tegra lanes=2 and loaded via `LD_LIBRARY_PATH`; that is retired — the deser
-now drives 4 lanes @ 1100 Mbps, so `csiPort: "csi-ab"`'s native 4 lanes are correct. If a stale
+now drives 4 lanes @ 2500 Mbps, so `csiPort: "csi-ab"`'s native 4 lanes are correct. If a stale
 patched copy is still on the rig, clear it with
 `bash d457-sipl/sdk-patches/restore_libnvsipl_stock.sh` and drop `LD_LIBRARY_PATH` from run lines.
 
@@ -173,7 +173,7 @@ Key lines and what they mean:
 | `FE syncpt timeout` / `frame end` timeout | SOF seen but no Frame-End | Short/truncated frame — resolution or lane-rate mismatch |
 | `corr_err: discarding frame` | VI correlation/validation error | DT/VC mismatch or embedded-line mismatch |
 | `pixel short line` / `PIX_SHORT` | fewer pixels/line than configured | width/stride mismatch, or RGB ISP stalling mid-stream |
-| `nvcsi … err`, `t*-nvcsi … status` | NVCSI D-PHY / lane error | lane count or D-PHY rate mismatch (the `1100000` / lanes=4 set) |
+| `nvcsi … err`, `t*-nvcsi … status` | NVCSI D-PHY / lane error | lane count or D-PHY rate mismatch (the query's `dphyRate` 2500000 / lanes=4 vs the deser's `D457_DPHY_RATE_100M`) |
 
 A flood of syncpt timeouts with **nothing** in the RTCPU trace = data isn't even reaching the SoC
 (look at SerDes lock, layer 6). Timeouts **with** `CHANSEL_*` events in the trace = data arrives but
@@ -244,7 +244,7 @@ to keep open during bring-up — most D457 SIPL failures land on one of these:
 | `CHANSEL_FAULT` / `FAULT_FE` | fault during the frame, forced frame-end | upstream stream dropped mid-frame (link glitch, ISP stall) | SerDes lock (§6); RGB-stall gotcha |
 | `CSIMUX_FRAME` error bits | CSI mux frame error (e.g. spurious/missing) | link instability / wrong lane mapping | NVCSI lanes, SerDes |
 | `CSIMUX_STREAM` (FIFO overflow / spurious) | CSI stream FIFO overflow | rate too high for the configured lanes | match DS5 rate ↔ deser ↔ query |
-| `PHY_INTR` / NVCSI PHY error | D-PHY lane / deskew / CRC error | lane count or D-PHY rate mismatch | the `lanes=4` / `1100000` matched set |
+| `PHY_INTR` / NVCSI PHY error | D-PHY lane / deskew / CRC error | lane count or D-PHY rate mismatch | the `lanes=4` / `dphyRate` 2500000 matched set (`tools/lane_rate_test.sh`) |
 | `ATOMP_*` (packet overflow / FE) | memory-write (output) side error | buffer/stride config | usually downstream of a DT/size mismatch above |
 
 **No `CSIMUX_FRAME` events at all** ⇒ no data reached the CSI mux ⇒ stop looking at VI; the problem

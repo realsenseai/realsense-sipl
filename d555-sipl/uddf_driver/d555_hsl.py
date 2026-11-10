@@ -249,7 +249,7 @@ def seq_depth_m896x504_30fps():
     with Sequence('depth_m896x504_30fps'):
         annotate('depth_m896x504_30fps')
         with d555:
-            write(0x0000, 0x0203) # set profile DEPTH 896x504_30fps (index 4)
+            write(0x0000, 0x0203) # set profile DEPTH 896x504_30fps (index 0)
             write(0x0000, 0x0201) # start streaming DEPTH
 
 def seq_depth_m896x504_15fps():

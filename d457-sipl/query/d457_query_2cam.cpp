@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * d457_query.cpp — SIPL query for 2x D457 (2 cameras x depth+RGB+IR = 6 pipelines) on deser A.
+ *
+ * SUPERSEDED, kept for reference: the current D457Sensor takes the GMSL link from
+ * GmslModuleContext::Config.linkIndex and registers the DS5 mux only for deviceIndex 0, so this
+ * single-module, deviceIndex-encodes-the-link layout no longer matches it. Stage 2 (two cameras)
+ * uses d457_query.cpp with enableMasks 0x0011 instead, letting the framework replicate the
+ * 3-sensor module per link (tools/run_d457_cams.sh 2, tools/stage2_720p.sh).
  * Single module (enableMasks 0x0001, NO framework replication) -> 6 sensorInfo -> 6 pipelines.
  * VI capture VC = vcIdSrc: link0 = 0/1/2, link1 = 4/5/6 (distinct -> no collision). The deser HSL
  * (MAX967XXHsl mapping_A) remaps each camera's native VC0/1/2 to those output VCs (link1 via extended-VC).

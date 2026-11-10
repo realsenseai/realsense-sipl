@@ -44,7 +44,7 @@ if [ "$running_geom" != "$GEOM" ]; then
         -rfbport ${VNC_PORT} -AlwaysShared > "$HOME/xvnc.log" 2>&1 &
     sleep 3
 fi
-DISPLAY=${VNC_DISPLAY} xhost +local: >/dev/null 2>&1 || true
+DISPLAY=${VNC_DISPLAY} xhost +si:localuser:root >/dev/null 2>&1 || true
 echo "[vnc] view: tunnel ${VNC_PORT}, then VNC viewer -> localhost:${VNC_PORT} (password: the VNC_PW you set)"
 echo "[vnc] desktop ${GEOM} (reconnect your VNC viewer if it was open before this resize)"
 
@@ -58,6 +58,12 @@ echo "[3/3] launching Holoscan player for [${LIST}] on ${VNC_DISPLAY} ... (Ctrl-
 cd $HOME/holoscan-sensor-bridge || exit 1
 cat > $HOME/_d457_play.sh <<EOF
 cd $HOME/holoscan-sensor-bridge || exit 1
+# Use the HSB tree built by prepare_hsb.sh + the container build, not the hololink baked into the
+# demo image: overlay the Python sources with the compiled modules and put that first.
+rm -rf _pyroot && mkdir -p _pyroot/hololink
+cp -rs $HOME/holoscan-sensor-bridge/python/hololink/. _pyroot/hololink/
+cp -rsf $HOME/holoscan-sensor-bridge/build/python/lib/hololink/. _pyroot/hololink/
+export PYTHONPATH=$HOME/holoscan-sensor-bridge/_pyroot\${PYTHONPATH:+:\$PYTHONPATH}
 export D457_STREAMS=${LIST}
 python3 examples/d457_sipl_player.py --camera-config D457_Camera
 EOF

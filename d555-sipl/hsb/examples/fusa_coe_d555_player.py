@@ -28,7 +28,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import holoscan
-from cuda import cuda
+import cuda.bindings.driver as cuda
 import hololink as hololink_module
 
 
@@ -115,7 +115,8 @@ class HoloscanApplication(holoscan.core.Application):
         width = self._camera._width
         height = self._camera._height
         stride = width * 2
-        format = hololink_module.sensors.csi.PixelFormat.RAW_12 
+        # Z16 depth and YUYV RGB are both 2 bytes per pixel, with nothing to unpack
+        format = hololink_module.sensors.csi.PixelFormat.RAW_16
         receiver_operator.configure(0, stride, width, height, format, 0)
 
         visualizer = holoscan.operators.HolovizOp(
