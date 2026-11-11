@@ -54,7 +54,7 @@ On IGX Thor, `--receiver roce` uses the first RDMA device unless `--ibv-name` na
 
 ## Setup
 
-1. **Camera firmware.** The examples need D555 firmware with HSB support; the versions they were tested with are listed under [Tested Configuration](#tested-configuration). Flash it over USB, not Ethernet: connect the camera to the host over USB, so it runs in USB mode, and use `rs-fw-update` from [librealsense](https://github.com/realsenseai/librealsense) (`rs-fw-update -l` lists the camera and its firmware version, `rs-fw-update -f <image>.bin` flashes it). After a reboot with an Ethernet link, the camera boots in Ethernet mode at `192.168.0.2`.
+1. **Camera firmware.** The examples need D555 firmware with HSB support. It is not publicly released yet; to get it, contact [ashraf.kattoura@realsenseai.com](mailto:ashraf.kattoura@realsenseai.com) or [uzi.sarel@realsenseai.com](mailto:uzi.sarel@realsenseai.com). The versions the examples were tested with are listed under [Tested Configuration](#tested-configuration). Flash it over USB, not Ethernet: connect the camera to the host over USB, so it runs in USB mode, and use `rs-fw-update` from [librealsense](https://github.com/realsenseai/librealsense) (`rs-fw-update -l` lists the camera and its firmware version, `rs-fw-update -f <image>.bin` flashes it). After a reboot with an Ethernet link, the camera boots in Ethernet mode at `192.168.0.2`.
 
 2. **Host network.** Give the host interface facing the camera an address on the camera's subnet, for example on a Jetson AGX Thor:
 
@@ -161,4 +161,4 @@ Apache License 2.0. See [LICENSE](../LICENSE). `d555_peoplenet.py` and `d555_peo
 
 ## Support
 
-Maintained by Ashraf Kattoura (RealSense AI). Report issues on the [Holoscan Sensor Bridge Hub issue tracker](https://github.com/nvidia-holoscan/holoscan-sensor-bridge-hub/issues) and mention `realsense/examples/d555`.
+Maintained by Ashraf Kattoura (RealSense AI). For access to the D555 HSB firmware, contact [ashraf.kattoura@realsenseai.com](mailto:ashraf.kattoura@realsenseai.com) or [uzi.sarel@realsenseai.com](mailto:uzi.sarel@realsenseai.com). Report issues on the [Holoscan Sensor Bridge Hub issue tracker](https://github.com/nvidia-holoscan/holoscan-sensor-bridge-hub/issues) and mention `realsense/examples/d555`.
