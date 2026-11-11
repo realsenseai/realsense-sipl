@@ -85,11 +85,11 @@ On IGX Thor, `--receiver roce` uses the first RDMA device unless `--ibv-name` na
 
 ## Build
 
-There is nothing to build. The examples run inside the HSB 2.7.0 container, which provides Holoscan, `hololink` and the Python packages in `requirements.txt`.
+There is nothing to build. The examples run inside the HSB 2.7.0 container, which provides Holoscan, `hololink` and the Python packages in `requirements.txt` at the tested versions. If a rebuilt container has other versions, install the tested ones inside it with `pip install -r requirements.txt`.
 
 ## Run
 
-Start the container from the HSB checkout, then run an example from this directory. `docker/demo.sh` mounts the current directory and `$HOME`; adjust the path below to wherever this project is checked out.
+Start the container from the HSB checkout, then run an example from this directory. `docker/demo.sh` mounts only the current directory (the HSB checkout) and `$HOME`, so this project must be checked out under one of them; adjust the path below to where it is.
 
 ```sh
 cd holoscan-sensor-bridge
@@ -115,7 +115,7 @@ Common options:
 
 ## Test
 
-Each example runs headless for a fixed number of frames and exits with status 0 only if every stream passes: all frames received, no gaps in the camera's frame counter, no short frames, nothing dropped by the receiver, and the stream stop acknowledged.
+Each example runs headless for a fixed number of frames and exits with status 0 only if every stream passes: all frames received, at least 90% of the profile's frame rate after the first 10 frames, no gaps in the camera's frame counter, no short frames, nothing dropped by the receiver, and the stream stop acknowledged. A run that receives no frame at all fails.
 
 ```sh
 python3 d555_player.py --stream depth --headless --frame-limit 300 --stats-every 100
@@ -149,9 +149,9 @@ With a display, `d555_player.py` shows the colorized depth (blue near, red far, 
 
 - **Bandwidth.** The camera sends at most about 500 Mbps of payload. At 30 fps that is depth and RGB together up to 896x504, or one stream at 1280x720. The examples refuse stream sets above the limit unless `--allow-overload` is given.
 - **RGB 1280x800** (firmware profiles 4 and 5) is refused by the camera, so the examples do not offer it.
-- **Dual stream** runs both streams at the same frame rate: the viewer draws a frame from each together.
+- **Dual stream** runs both streams at the same frame rate, since the viewer draws once it has a new frame from each. It shows the latest frame of each stream; frames are not matched by camera timestamp.
 - **Start and stop.** Each is sent once and never retried, because the camera counts a repeated command twice: two starts leave the stream running after one stop, and two stops make it refuse new profiles, until it is power-cycled. If an example reports `stream start was not acknowledged` or `stream stop was not acknowledged`, power-cycle the camera before the next run.
-- **Frame limit.** `--frame-limit` counts receiver ticks, which also pass once a second while no frame arrives, so a stream that never starts ends after that many seconds and fails.
+- **Frame limit.** `--frame-limit` counts receiver ticks. Until the first frame arrives they also pass once a second, so a stream that never starts ends after that many seconds and fails. If frames stop after the stream has started, the receiver waits for the next one, so wrap unattended runs in `timeout`.
 - **Not covered here:** the camera's IMU stream, depth-to-RGB alignment, and the Camera-over-Ethernet (IEEE 1722) and SIPL capture paths.
 - The firmware is an early-access preview, not validated for production.
 

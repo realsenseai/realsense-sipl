@@ -34,7 +34,7 @@
 			"hardware": [
 				{
 					"name": "RealSense D555",
-					"description": "D555 with the Holoscan Sensor Bridge firmware (7.58.46389.16966 or 7.59.0.16345), connected to the host over Ethernet."
+					"description": "D555 with Holoscan Sensor Bridge firmware, connected to the host over Ethernet."
 				}
 			]
 		}

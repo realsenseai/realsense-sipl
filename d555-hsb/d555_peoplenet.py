@@ -19,8 +19,8 @@
 The graph follows Holoscan Sensor Bridge's linux_tao_peoplenet.py example and reuses its
 pre- and post-processing operators from the HSB examples directory.
 
-    python3 d555_peoplenet.py
-    python3 d555_peoplenet.py --receiver roce --profile 6
+    HSB_ROOT=/path/to/holoscan-sensor-bridge python3 d555_peoplenet.py
+    HSB_ROOT=/path/to/holoscan-sensor-bridge python3 d555_peoplenet.py --receiver roce --profile 6
 """
 
 import argparse
@@ -75,7 +75,7 @@ def main():
 
     profile = DEFAULT_PROFILE[STREAM] if args.profile is None else args.profile
     validate_profiles(parser, {STREAM: profile}, args.allow_overload)
-    width, height, _ = STREAMS[STREAM].profiles[profile]
+    width, height, fps = STREAMS[STREAM].profiles[profile]
 
     channel, camera = open_stream(find_camera(args.hololink), STREAM, profile)
     device, cuda_context = init_cuda(args.gpu)
@@ -93,6 +93,7 @@ def main():
             stream=STREAM,
             width=width,
             height=height,
+            fps=fps,
             stats_every=args.stats_every,
         )
         visualizer = holoscan.operators.HolovizOp(

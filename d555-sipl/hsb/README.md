@@ -21,7 +21,7 @@ capture operator targets the L4T R38 SIPL API (`CameraSystemConfig`); see
 | Firmware | CoE channel | Single-stream players | Dual-stream CoE players |
 | --- | --- | --- | --- |
 | 7.58.46389.16966, 7.59.0.16345 | Always 4 | Work | Do not work: both streams arrive on channel 4 |
-| 7.58.46389.17264 (channel fix, not released yet) | The one the host configures | Work | Work at 640x360 |
+| 7.58.46390.18013 (channel fix, early access: see [Support](../../d555-hsb/README.md#support)) | The one the host configures | Work | Work at 640x360 |
 
 `linux_coe_d555_player.py` defaults to `--coe-channel 4`, which works with all three.
 
@@ -60,8 +60,8 @@ hardware CoE mode, which takes the AVTP frames the Linux CoE receiver reads from
 Linux CoE player before them, or reboot the host in between.
 
 Verified on `rs-hsb-thor` (Jetson AGX Thor, L4T R38.4, HSB 2.7.0 in `hololink-demo:2.7.0`,
-firmware 7.59.0.16345, 7.58.46389.16966 and 7.58.46389.17264): the tree builds with no errors, and
+firmware 7.59.0.16345, 7.58.46389.16966 and 7.58.46390.18013): the tree builds with no errors, and
 `d555_sipl_player` (depth and RGB), `linux_coe_d555_player.py` and `fusa_coe_d555_player.py` stream
-640x360 at 30 fps. On 7.58.46389.17264, `linux_coe_d555_dual_stream.py` and
+640x360 at 30 fps. On 7.58.46390.18013, `linux_coe_d555_dual_stream.py` and
 `fusa_coe_d555_dual_stream.py` also stream both at 640x360 at 30 fps, each on its own channel.
 Every player shows depth as a colour map and RGB as video, through the same `ImageDecoder`.

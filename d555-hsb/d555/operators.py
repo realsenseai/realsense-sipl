@@ -173,19 +173,23 @@ class D555DecoderOp(holoscan.core.Operator):
 
     def compute(self, op_input, op_output, context):
         message = op_input.receive("input")
-        frame = cp.asarray(_first_tensor(message)).ravel().view(cp.uint8)
-        if frame.size < self._frame_size:
-            # The receiver trims a frame to the bytes the camera reported writing.
-            self._short_frames += 1
-            if self._short_frames == 1 or self._short_frames % 100 == 0:
-                logging.warning(
-                    f"{self.name}: {self._short_frames} short frame(s), last {frame.size} of "
-                    f"{self._frame_size} bytes; dropped"
-                )
-            return
-        rgb = self._decode(frame[: self._frame_size])
-        # The next operator may run on another CUDA stream; make the image complete first.
-        cp.cuda.get_current_stream().synchronize()
+        # The receiver copies the frame asynchronously on its own CUDA stream; this stream waits
+        # for that copy, so the kernels below read a complete frame.
+        stream = op_input.receive_cuda_stream("input")
+        with cp.cuda.ExternalStream(stream):
+            frame = cp.asarray(_first_tensor(message)).ravel().view(cp.uint8)
+            if frame.size < self._frame_size:
+                # The receiver trims a frame to the bytes the camera reported writing.
+                self._short_frames += 1
+                if self._short_frames == 1 or self._short_frames % 100 == 0:
+                    logging.warning(
+                        f"{self.name}: {self._short_frames} short frame(s), last {frame.size} "
+                        f"of {self._frame_size} bytes; dropped"
+                    )
+                return
+            rgb = self._decode(frame[: self._frame_size])
+            # The next operator may run on another CUDA stream; make the image complete first.
+            cp.cuda.get_current_stream().synchronize()
         op_output.emit({self._out_tensor_name: rgb}, "output")
 
 
@@ -201,11 +205,20 @@ class FrameStatsOp(holoscan.core.Operator):
     passed on; a packet capture shows the camera did send them. Gaps within the first
     warmup_frames are therefore reported as startup_gaps, and frames the receiver dropped in
     that time as startup_dropped; neither fails the run.
+
+    fps is the profile's nominal frame rate. After warm-up, a run that received frames at less
+    than MIN_RATE_FRACTION of it fails, once at least a second of frames is in.
     """
 
-    def __init__(self, *args, stream, width, height, stats_every=150, warmup_frames=10, **kwargs):
+    MIN_RATE_FRACTION = 0.9
+
+    def __init__(
+        self, *args, stream, width, height, fps, stats_every=150, warmup_frames=10, **kwargs
+    ):
         self._stream = stream
         self._frame_size = width * height * BYTES_PER_PIXEL
+        self._nominal_fps = fps
+        self._warm_time = None
         self._stats_every = stats_every
         self._frames = 0
         self._first_time = None
@@ -247,6 +260,8 @@ class FrameStatsOp(holoscan.core.Operator):
             self._first_time = now
         elif not warming_up:
             self._max_interval = max(self._max_interval, now - self._last_time)
+        if self._frames == self._warmup_frames:
+            self._warm_time = now
         self._last_time = now
         self._frames += 1
 
@@ -276,23 +291,40 @@ class FrameStatsOp(holoscan.core.Operator):
         self._receiver_dropped = max(self._receiver_dropped, dropped - self._startup_dropped)
 
         if self._stats_every and self._frames % self._stats_every == 0:
-            frame = cp.asarray(_first_tensor(message)).ravel().view(cp.uint8)
-            logging.info(
-                f"{self._stream}: {self._frames} frames, {self._fps():.2f} fps, "
-                f"{self.content(frame)}"
-            )
+            # Read the frame on a stream that waits for the receiver's asynchronous copy.
+            with cp.cuda.ExternalStream(op_input.receive_cuda_stream("input")):
+                frame = cp.asarray(_first_tensor(message)).ravel().view(cp.uint8)
+                if frame.size < self._frame_size:
+                    # Counted as a short frame above; its content is not summarized.
+                    content = f"short frame, {frame.size} of {self._frame_size} bytes"
+                else:
+                    content = self.content(frame)
+            logging.info(f"{self._stream}: {self._frames} frames, {self._fps():.2f} fps, {content}")
 
     def _fps(self):
         elapsed = (self._last_time - self._first_time) if self._first_time else 0.0
         return (self._frames - 1) / elapsed if elapsed > 0 else 0.0
 
+    def _rate_too_low(self):
+        """True if the frame rate after warm-up is below MIN_RATE_FRACTION of the nominal rate.
+        Not judged until a second's worth of frames has arrived after warm-up."""
+        frames = self._frames - (self._warmup_frames + 1)
+        if self._warm_time is None or frames < self._nominal_fps:
+            return False
+        rate = frames / (self._last_time - self._warm_time)
+        return rate < self.MIN_RATE_FRACTION * self._nominal_fps
+
     def result(self, frame_limit, stop_failed):
-        """(summary line, passed). frame_limit counts receiver ticks, which also advance once a
-        second while no frame arrives, so receiving fewer frames than that is a failure."""
+        """(summary line, passed). frame_limit counts receiver ticks. Until the first frame
+        arrives they also advance once a second, so a stream that never starts ends the run with
+        fewer frames than that, a failure. Once frames have arrived, a receiver whose frames stop
+        waits for the next one, so an unattended run needs an outer timeout."""
         failures = [
             reason
             for reason, failed in (
+                ("no_frames", self._frames == 0),
                 (f"frames<{frame_limit}", frame_limit and self._frames < frame_limit),
+                (f"fps<{self.MIN_RATE_FRACTION:.0%}", self._rate_too_low()),
                 ("gaps", self._frame_number_gaps),
                 ("short", self._short_frames),
                 ("dropped", self._receiver_dropped),
