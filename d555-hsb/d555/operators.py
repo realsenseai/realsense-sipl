@@ -205,11 +205,20 @@ class FrameStatsOp(holoscan.core.Operator):
     passed on; a packet capture shows the camera did send them. Gaps within the first
     warmup_frames are therefore reported as startup_gaps, and frames the receiver dropped in
     that time as startup_dropped; neither fails the run.
+
+    fps is the profile's nominal frame rate. After warm-up, a run that received frames at less
+    than MIN_RATE_FRACTION of it fails, once at least a second of frames is in.
     """
 
-    def __init__(self, *args, stream, width, height, stats_every=150, warmup_frames=10, **kwargs):
+    MIN_RATE_FRACTION = 0.9
+
+    def __init__(
+        self, *args, stream, width, height, fps, stats_every=150, warmup_frames=10, **kwargs
+    ):
         self._stream = stream
         self._frame_size = width * height * BYTES_PER_PIXEL
+        self._nominal_fps = fps
+        self._warm_time = None
         self._stats_every = stats_every
         self._frames = 0
         self._first_time = None
@@ -251,6 +260,8 @@ class FrameStatsOp(holoscan.core.Operator):
             self._first_time = now
         elif not warming_up:
             self._max_interval = max(self._max_interval, now - self._last_time)
+        if self._frames == self._warmup_frames:
+            self._warm_time = now
         self._last_time = now
         self._frames += 1
 
@@ -294,6 +305,15 @@ class FrameStatsOp(holoscan.core.Operator):
         elapsed = (self._last_time - self._first_time) if self._first_time else 0.0
         return (self._frames - 1) / elapsed if elapsed > 0 else 0.0
 
+    def _rate_too_low(self):
+        """True if the frame rate after warm-up is below MIN_RATE_FRACTION of the nominal rate.
+        Not judged until a second's worth of frames has arrived after warm-up."""
+        frames = self._frames - (self._warmup_frames + 1)
+        if self._warm_time is None or frames < self._nominal_fps:
+            return False
+        rate = frames / (self._last_time - self._warm_time)
+        return rate < self.MIN_RATE_FRACTION * self._nominal_fps
+
     def result(self, frame_limit, stop_failed):
         """(summary line, passed). frame_limit counts receiver ticks. Until the first frame
         arrives they also advance once a second, so a stream that never starts ends the run with
@@ -302,7 +322,9 @@ class FrameStatsOp(holoscan.core.Operator):
         failures = [
             reason
             for reason, failed in (
+                ("no_frames", self._frames == 0),
                 (f"frames<{frame_limit}", frame_limit and self._frames < frame_limit),
+                (f"fps<{self.MIN_RATE_FRACTION:.0%}", self._rate_too_low()),
                 ("gaps", self._frame_number_gaps),
                 ("short", self._short_frames),
                 ("dropped", self._receiver_dropped),

@@ -115,7 +115,7 @@ Common options:
 
 ## Test
 
-Each example runs headless for a fixed number of frames and exits with status 0 only if every stream passes: all frames received, no gaps in the camera's frame counter, no short frames, nothing dropped by the receiver, and the stream stop acknowledged.
+Each example runs headless for a fixed number of frames and exits with status 0 only if every stream passes: all frames received, at least 90% of the profile's frame rate after the first 10 frames, no gaps in the camera's frame counter, no short frames, nothing dropped by the receiver, and the stream stop acknowledged. A run that receives no frame at all fails.
 
 ```sh
 python3 d555_player.py --stream depth --headless --frame-limit 300 --stats-every 100

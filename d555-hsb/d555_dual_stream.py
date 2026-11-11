@@ -85,7 +85,7 @@ def main():
 
         for index, name in enumerate(LAYOUT):
             channel, camera = streams[name]
-            width, height, _ = STREAMS[name].profiles[profiles[name]]
+            width, height, fps = STREAMS[name].profiles[profiles[name]]
             condition = frame_condition(app, name, args.frame_limit)
             receiver = make_receiver(
                 app, args, name, profiles[name], channel, camera, condition, index=index
@@ -104,6 +104,7 @@ def main():
                 stream=name,
                 width=width,
                 height=height,
+                fps=fps,
                 stats_every=args.stats_every,
             )
             app.add_flow(receiver, decoder, {("output", "input")})

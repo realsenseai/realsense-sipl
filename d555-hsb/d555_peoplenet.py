@@ -75,7 +75,7 @@ def main():
 
     profile = DEFAULT_PROFILE[STREAM] if args.profile is None else args.profile
     validate_profiles(parser, {STREAM: profile}, args.allow_overload)
-    width, height, _ = STREAMS[STREAM].profiles[profile]
+    width, height, fps = STREAMS[STREAM].profiles[profile]
 
     channel, camera = open_stream(find_camera(args.hololink), STREAM, profile)
     device, cuda_context = init_cuda(args.gpu)
@@ -93,6 +93,7 @@ def main():
             stream=STREAM,
             width=width,
             height=height,
+            fps=fps,
             stats_every=args.stats_every,
         )
         visualizer = holoscan.operators.HolovizOp(
