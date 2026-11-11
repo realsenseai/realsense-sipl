@@ -179,7 +179,7 @@ def main():
         type=int,
         default=4,
         help="IEEE 1722 CoE channel to receive. D555 HSB firmware (7.58.46389.16966, 7.59.0.16345) "
-        "sends every stream on channel 4; 7.58.46389.17264 sends on the channel given here; "
+        "sends every stream on channel 4; 7.58.46390.18013 sends on the channel given here; "
         "older firmware used the stream ID (depth 2, RGB 0).",
     )
     args = parser.parse_args()
