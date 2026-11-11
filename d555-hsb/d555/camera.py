@@ -61,7 +61,12 @@ class D555Stream:
 
     def start(self):
         logging.info(f"{self.name}: starting profile {self._profile}")
-        self._command(COMMAND_SET_PROFILE, self._profile)
+        # A profile write is safe to resend, so it keeps Hololink's retry. If the camera never
+        # acknowledges it, the stream could start with another frame size than the receiver's.
+        if self._command(COMMAND_SET_PROFILE, self._profile) is False:
+            raise RuntimeError(
+                f"{self.name}: profile {self._profile} was not acknowledged; stream not started"
+            )
         started = self._command(
             COMMAND_START, timeout=hololink_module.Timeout(COMMAND_TIMEOUT_S), retry=False
         )

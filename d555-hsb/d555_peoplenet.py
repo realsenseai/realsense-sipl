@@ -19,8 +19,8 @@
 The graph follows Holoscan Sensor Bridge's linux_tao_peoplenet.py example and reuses its
 pre- and post-processing operators from the HSB examples directory.
 
-    python3 d555_peoplenet.py
-    python3 d555_peoplenet.py --receiver roce --profile 6
+    HSB_ROOT=/path/to/holoscan-sensor-bridge python3 d555_peoplenet.py
+    HSB_ROOT=/path/to/holoscan-sensor-bridge python3 d555_peoplenet.py --receiver roce --profile 6
 """
 
 import argparse
