@@ -44,14 +44,25 @@ void D457SIPLCaptureOp::setup(holoscan::OperatorSpec& spec)
 
 nvidia::gxf::Expected<void> D457SIPLCaptureOp::buffer_release_callback(void* pointer)
 {
-    std::lock_guard<std::mutex> lock(pending_buffers_mutex_);
-    auto status = pending_buffers_[pointer]->Release();
-    if (status != nvsipl::NVSIPL_STATUS_OK) {
-        HSB_LOG_ERROR("Failed to release buffer {}", (void*)pending_buffers_[pointer]);
-    } else {
-        HSB_LOG_TRACE("Released buffer {}", (void*)pending_buffers_[pointer]);
+    {
+        std::lock_guard<std::mutex> lock(pending_buffers_mutex_);
+        // find() rather than operator[]: an unknown pointer would default-construct a null entry
+        // and then dereference it. Same fix as D555SIPLCaptureOp::buffer_release_callback().
+        auto it = pending_buffers_.find(pointer);
+        if (it == pending_buffers_.end()) {
+            HSB_LOG_ERROR("Release callback for an unknown buffer {}", pointer);
+            return nvidia::gxf::Expected<void>();
+        }
+        auto* buffer = it->second;
+        auto status = buffer->Release();
+        if (status != nvsipl::NVSIPL_STATUS_OK) {
+            HSB_LOG_ERROR("Failed to release buffer {}", (void*)buffer);
+        } else {
+            HSB_LOG_TRACE("Released buffer {}", (void*)buffer);
+        }
+        pending_buffers_.erase(it);
     }
-    pending_buffers_.erase(pointer);
+    // stop() waits on this before freeing the CUDA mappings and NvSci buffers.
     pending_buffer_released_.notify_all();
     return nvidia::gxf::Expected<void>();
 }

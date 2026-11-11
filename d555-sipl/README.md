@@ -50,23 +50,26 @@ sudo cp build/d555/libnvuddf_realsense_library.so /usr/lib/nvsipl_uddf/
 
 ## Running
 
-The Holoscan-side consumers live in the vendored HSB tree:
+The Holoscan-side consumers live in `hsb/` and reach a Holoscan Sensor Bridge 2.7.0 tree through
+`tools/prepare_hsb.sh d555` (see `hsb/README.md`), which puts them at the same relative paths under
+`holoscan-sensor-bridge/`:
 
-- `holoscan-sensor-bridge/examples/d555_sipl_player.cpp` — the SIPL capture player
-- `holoscan-sensor-bridge/examples/linux_coe_d555_player.py`, `fusa_coe_d555_player.py` and their
-  `_dual_stream` variants — the Python CoE players
-- `holoscan-sensor-bridge/src/hololink/operators/d555_sipl_capture/` — the Holoscan capture operator
-- `holoscan-sensor-bridge/examples/sipl_config/d555_single.json` — the SIPL camera config
+- `hsb/examples/d555_sipl_player.cpp` — the SIPL capture player
+- `hsb/examples/linux_coe_d555_player.py`, `fusa_coe_d555_player.py` and their `_dual_stream`
+  variants — the Python CoE players
+- `hsb/src/hololink/operators/d555_sipl_capture/` — the Holoscan capture operator
+- `hsb/examples/sipl_config/d555_single.json` — the SIPL camera config
 
 Stream selection is by `D555_STREAM`. The SDK's own `nvsipl_coe_camera` / `nvsipl_coe_query_test`
 are useful for bring-up; they ship with the SDK and are installed at `/usr/bin` on the Jetson.
 
 ## Note on `hololink/core/`
 
-This is a **fork** of the Holoscan Sensor Bridge C++ core, not a copy of the tree vendored at
-`../holoscan-sensor-bridge/`: 18 files are identical, 13 differ, and `tools.{cpp,hpp}` exist only
-here. It is kept separate because the driver builds against this pinned variant. Unifying the two
-is worthwhile but needs testing on the D555 rig, so it has deliberately not been done here.
+This is a **fork** of an older Holoscan Sensor Bridge C++ core (from before 2.5.0, with explicit
+RAW10/RAW12 packetizer programs), independent of the HSB 2.7.0 tree the Holoscan code builds on;
+`tools.{cpp,hpp}` exist only here. It is kept separate because the driver builds against this pinned
+variant. Moving the driver to the 2.7.0 core is worthwhile but needs testing on the D555 rig, so it
+has deliberately not been done here.
 
 Tracked in [issue #3](https://github.com/realsenseai/realsense-sipl/issues/3), which records the
 concrete divergence. The `alignment == 0` half is fixed here now -- it used to return 0 instead of
@@ -81,11 +84,12 @@ alongside; the code is RealSense-authored (it shares 17 lines with NVIDIA's `Sam
 and the header was corrected to match. `hololink/core/` keeps its NVIDIA Apache-2.0 headers, which
 Apache-2.0 requires be retained; `fmt/` keeps its MIT notice.
 
-`hsb/src/hololink/operators/d555_sipl_capture/d555_sipl_fmt.hpp` keeps **NVIDIA's** notice and
-nothing else: it is a byte-for-byte copy of upstream's `sipl_capture/sipl_fmt.hpp`, so replacing the
-notice would have dropped the attribution Apache-2.0 §4(c) requires be retained. The D457 side's
-`d457_sipl_fmt.hpp` is the same formatter with four extra `FMT()` entries, so it carries both
-notices — NVIDIA's for the copied block, RealSense's for the addition.
+`hsb/src/hololink/operators/d555_sipl_capture/d555_sipl_fmt.hpp` is upstream's
+`sipl_capture/sipl_fmt.hpp` plus ten `FMT()` entries (Bayer8/Bayer16) and a non-throwing fallback for
+unnamed formats, both added in #10. It carries both notices — NVIDIA's, which Apache-2.0 §4(c)
+requires be retained for the copied body, and RealSense's for the additions. The D457 side's
+`d457_sipl_fmt.hpp` is the same formatter minus the `CameraSystemConfig` formatters (that API is gone
+in R39.2) plus four Bayer16 `FMT()` entries, and carries the same two notices.
 
 An earlier version of this section said those two were the only such files. That was wrong, and the
 audit behind it could not have found the others: it compared each file against a byte-identical body

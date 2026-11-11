@@ -1,0 +1,20 @@
+docker/demo.sh: mount the host's SIPL driver directories into the demo container, read-only.
+
+SIPL loads camera drivers from /usr/lib/nvsipl_uddf (UDDF drivers, e.g. the D555's
+libnvuddf_realsense_library.so) and /usr/lib/nvsipl_drv (e.g. the D457 module driver and query
+plugin). The container has neither, so a SIPL player run inside it cannot find the camera driver.
+Each mount is added only when the directory exists on the host.
+
+diff --git a/docker/demo.sh b/docker/demo.sh
+index 3903d61..173a4b3 100755
+--- a/docker/demo.sh
++++ b/docker/demo.sh
+@@ -98,6 +98,8 @@ docker run \
+     -v /tmp/argus_socket:/tmp/argus_socket \
+     -v /sys/devices:/sys/devices \
+     -v /var/nvidia/nvcam/settings:/var/nvidia/nvcam/settings \
++    $(if [ -d /usr/lib/nvsipl_uddf ]; then echo "-v /usr/lib/nvsipl_uddf:/usr/lib/nvsipl_uddf:ro"; fi) \
++    $(if [ -d /usr/lib/nvsipl_drv ]; then echo "-v /usr/lib/nvsipl_drv:/usr/lib/nvsipl_drv:ro"; fi) \
+     -w $PWD \
+     -e NVIDIA_DRIVER_CAPABILITIES=graphics,video,compute,utility,display \
+     -e NVIDIA_VISIBLE_DEVICES=all \
